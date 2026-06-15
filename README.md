@@ -91,7 +91,7 @@ copy.
 ```bash
 pip install -e ".[dev]"
 pytest                      # unit tests
-ruff check tests index_tools.py constants.py config.py deprecation.py data_handlers
+ruff check tests index_tools.py constants.py config.py deprecation.py data_handlers trace_analysis
 ```
 
 Tests, docs, and releases are automated via GitHub Actions

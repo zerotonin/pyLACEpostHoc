@@ -34,7 +34,7 @@ jobs:
       - name: Lint
         # Scoped to the modernised surface; the legacy research modules
         # are linted incrementally as they are brought up to the whitepaper.
-        run: ruff check tests index_tools.py constants.py config.py deprecation.py data_handlers
+        run: ruff check tests index_tools.py constants.py config.py deprecation.py data_handlers trace_analysis
 
       - name: Run tests
         run: pytest --cov --cov-report=xml
