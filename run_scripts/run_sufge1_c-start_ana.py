@@ -1,5 +1,11 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — run_scripts.run_sufge1_c-start_ana              ║
+# ║  « sufge1 c-start behaviour analysis »                           ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Collects, filters, and plots c-start spike, speed, tortuosity,  ║
+# ║  and Mauthner-histogram data for the sufge1 zebrafish lines.     ║
+# ╚══════════════════════════════════════════════════════════════════╝
 import pandas as pd
-import fish_data_base.fishDataBase as fishDataBase
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 import re, os
@@ -12,6 +18,9 @@ from scipy.stats import norm
 import seaborn as sns
 from scipy.stats import sem
 from scipy.ndimage import gaussian_filter1d
+
+import config
+from fish_data_base.fishDataBase import FishDataBase
 
 """
 Fish Behavior Analysis Script
@@ -507,10 +516,10 @@ def collect_data():
         defaultdict: A nested dictionary with structure 
                      data_dict[sex][genotype][metric] containing organized fish data.
     """
-    # Assuming fishDataBase and other necessary modules are imported
-    db = fishDataBase.fishDataBase("/home/bgeurten/fishDataBase",'/home/bgeurten/fishDataBase/fishDataBase_cstart.csv')
+    database_path = config.get_path("database_path")
+    db = FishDataBase(database_path, database_path / "fishDataBase_cstart.csv")
     df = db.database
-    df_jump = pd.read_csv('/home/bgeurten/fishDataBase/suf_cstart_round_robin_jumps.csv')
+    df_jump = pd.read_csv(database_path / "suf_cstart_round_robin_jumps.csv")
 
     phenotypes = ['sufge1-HT', 'sufge1-HM', 'sufge1-INT']
     sexes = ['M', 'F']
@@ -840,7 +849,7 @@ def main():
     2. Sum the histograms and replace specified fields in the data dictionary.
     3. Plot the data for visual analysis.
     """
-    file_path = '/home/bgeurten/fishDataBase/c-start_combined_timeData.pkl'  # Replace with your desired file path
+    file_path = config.get_path("database_path") / "c-start_combined_timeData.pkl"
     
     # Check if the data_dict file already exists on disk
     if os.path.exists(file_path):

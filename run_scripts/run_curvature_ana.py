@@ -1,40 +1,56 @@
-from importlib import reload
-from sre_compile import isstring
-import numpy as np
-import pandas as pd
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — run_scripts.run_curvature_ana                   ║
+# ║  « c-start curvature boxplots »                                  ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Computes total mid-line curvature per recording and boxplots it ║
+# ║  by genotype and sex.                                            ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Boxplot total mid-line curvature amplitudes by genotype and sex."""
+from __future__ import annotations
+
 import matplotlib.pyplot as plt
-import fish_data_base.fishDataBase as fishDataBase
+import pandas as pd
 import seaborn as sns
 from tqdm import tqdm
-import trace_analysis.CurvatureAnalyser as CurvatureAnalyser
 
-#%%
-#multiFileFolder = '/media/gwdg-backup/BackUp/Vranda/data_counter_c-start/countercurrent_onefolder/rei_last_generation_11-2018'
-#multiFileFolder = '/media/gwdg-backup/BackUp/Vranda/Finaldata_rei/Countercurrent_trials_rei'
-#db = fishDataBase.fishDataBase("/home/bgeurten/fishDataBase/")
-# Experiment types CCur counter current , Ta tapped, Unt untapped, cst, c-startz
-#db.runMultiTraceFolder(multiFileFolder,'rei','CCur','11-2018',start_at=0)
-#%%
-db = fishDataBase.fishDataBase("/home/bgeurten/fishDataBase",'/home/bgeurten/fishDataBase/fishDataBase_cstart.csv')
-#db.rebase_paths()
-df = db.database
-curv_list = list()
-for i,row in tqdm(df.iterrows()):
-    if isinstance(row.path2_midLineUniform_pix,str):
+import config
+from fish_data_base.fishDataBase import FishDataBase
+from trace_analysis.CurvatureAnalyser import CurvatureAnalyser
+
+META_COLUMNS = ["genotype", "sex", "animalNo", "expType", "birthDate"]
+
+
+def collect_curvature(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute curvature amplitudes for every recording with a mid-line."""
+    records = []
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="curvature"):
+        if not isinstance(row.path2_midLineUniform_pix, str):
+            continue
         try:
             midline_df = pd.read_csv(row.path2_midLineUniform_pix)
-            ca = CurvatureAnalyser.CurvatureAnalyser(midline_df)
-            curv_list.append(ca.get_total_curvature_amps())
-        except:
-            print(f'!! {row.path2_midLineUniform_pix} did not produce output')
-#curv_df = pd.concat([df[['genotype', 'sex', 'animalNo', 'expType', 'birthDate']],pd.DataFrame(curv_list)],axis=1)
-#curv_df.to_csv("/home/bgeurten/PyProjects/reRandomStats/Data/rei_curvature_c-start_data.csv", index=False)
-df = pd.concat([df,pd.DataFrame(curv_list)],axis=1)
-import seaborn as sns
-for expType in [('cst','c-start'),('Unt','free swimming')]:
-    for parameter in ['median_curv_amp', 'mean_curv_amp', 'max_curv_amp']:
-        f= plt.figure()
-        sns.boxplot(x="genotype", y=parameter, order=['rei-INT', 'rei-HT', 'rei-HM'],
-                hue="sex",hue_order=['M','F'],data=curv_df.loc[curv_df['expType']==expType[1],:]).set_title(expType[1])
-        #plt.savefig('/home/bgeurten/fishDataBase/figures/'+f'{expType[1]}--{parameter}.svg'.replace(' ','_').replace('/','_per_'))
-plt.show()
+            amps = CurvatureAnalyser(midline_df).get_total_curvature_amps()
+            records.append({**row[META_COLUMNS].to_dict(), **amps})
+        except Exception:
+            print(f"!! {row.path2_midLineUniform_pix} did not produce output")
+    return pd.DataFrame(records)
+
+
+def main() -> None:
+    """Load the c-start database, compute curvature, and boxplot it."""
+    database_path = config.get_path("database_path")
+    db = FishDataBase(database_path, database_path / "fishDataBase_cstart.csv")
+    curv_df = collect_curvature(db.database)
+
+    for _tag, exp_name in [("cst", "c-start"), ("Unt", "free swimming")]:
+        for parameter in ["median_curv_amp", "mean_curv_amp", "max_curv_amp"]:
+            plt.figure()
+            sns.boxplot(
+                x="genotype", y=parameter, order=["rei-INT", "rei-HT", "rei-HM"],
+                hue="sex", hue_order=["M", "F"],
+                data=curv_df.loc[curv_df["expType"] == exp_name, :],
+            ).set_title(exp_name)
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()

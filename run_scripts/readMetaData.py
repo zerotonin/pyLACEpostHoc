@@ -1,36 +1,50 @@
-import scipy.io, os,re
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — run_scripts.readMetaData                        ║
+# ║  « convert MATLAB metadata to CSV »                              ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Reads the combined LACE metadata .mat file and writes it out as ║
+# ║  a CSV and a pandas pickle.                                      ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Convert the combined LACE metadata .mat file to CSV and pickle."""
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+
 import pandas as pd
+import scipy.io
 
-mat = scipy.io.loadmat('/media/gwdg-backup/BackUp/Zebrafish/combinedData/traceResultsAna_meta.mat')
+import config
 
-metaAll = mat['metaAll']
-matFileName = list()
-genoType = list()
-sex = list()
-experimentType = list()
-pix2mm = list()
-bwFilterSet =list()
-fps = list()
-saccThresh = list()
-dateTime = list()
-
-for fileI in range(metaAll.shape[1]):
-    file = metaAll[0,fileI]
-    matFileName.append(os.path.basename(file[1][0]))
-    genoType.append(file[2][0])
-    sex.append(file[3][0])
-    experimentType.append(file[4][0])
-    pix2mm.append(file[5][0])
-    bwFilterSet.append(file[6][0])
-    fps.append(file[7][0])
-    saccThresh.append(file[8][0])
-    dateTime.append([int(s) for s in re.findall(r'\d+', os.path.basename(file[1][0]))])
-
-metaDict = {'dateTime':dateTime,'sex':sex,'genoType':genoType,'experimentType':experimentType,'fps':fps,'pix2mm':pix2mm,'bwFilterSet':bwFilterSet,'saccThresh':saccThresh,'matFileName':matFileName}
+# Per-file metadata field index in the MATLAB metaAll struct.
+FIELDS = {
+    "matFileName": 1, "genoType": 2, "sex": 3, "experimentType": 4,
+    "pix2mm": 5, "bwFilterSet": 6, "fps": 7, "saccThresh": 8,
+}
 
 
-metaData = pd.DataFrame(metaDict)
-metaData.to_csv('/media/gwdg-backup/BackUp/Zebrafish/combinedData/traceResultsAna_meta.csv', index=False)
-metaData.to_pickle('/media/gwdg-backup/BackUp/Zebrafish/combinedData/traceResultsAna_meta_pandasPickle.pkl')
+def convert_metadata(mat_path: Path) -> pd.DataFrame:
+    """Read the metaAll struct from a .mat file into a tidy DataFrame."""
+    meta_all = scipy.io.loadmat(mat_path)["metaAll"]
+    columns: dict[str, list] = {name: [] for name in FIELDS}
+    date_time = []
+    for file_i in range(meta_all.shape[1]):
+        entry = meta_all[0, file_i]
+        for name, idx in FIELDS.items():
+            value = os.path.basename(entry[idx][0]) if name == "matFileName" else entry[idx][0]
+            columns[name].append(value)
+        date_time.append([int(s) for s in re.findall(r"\d+", os.path.basename(entry[1][0]))])
+    return pd.DataFrame({"dateTime": date_time, **columns})
 
-ABTLFmeta = metaData.loc[metaData['genoType'] == 'ABTLF']
+
+def main() -> None:
+    """Convert the configured metadata .mat file to CSV and pickle."""
+    combined = config.get_path("data_root") / "combinedData"
+    meta_data = convert_metadata(combined / "traceResultsAna_meta.mat")
+    meta_data.to_csv(combined / "traceResultsAna_meta.csv", index=False)
+    meta_data.to_pickle(combined / "traceResultsAna_meta_pandasPickle.pkl")
+
+
+if __name__ == "__main__":
+    main()

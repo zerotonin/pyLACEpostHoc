@@ -1,34 +1,28 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — run_scripts.run_spike2Scripts                   ║
+# ║  « build the c-start database »                                  ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Runs the multi-trace folder importer over the c-start raw data  ║
+# ║  to populate the c-start fish database.                          ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Populate the c-start fish database from the raw recording folders."""
+from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-from pandas.core import api
-from pandas.core.arrays.boolean import BooleanArray
-import quantities as pq
-import data_handlers.spike2SimpleIO as spike2SimpleIO 
-import seaborn as sns
-import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
-import trace_analysis.SpikeDetector as SpikeDetector
-import fish_data_base.fishDataBase  as fishDataBase
-
-"""
-#fN = r'/home/bgeurten/cstart_experiments/sufge1/Homozygous/male/movie9/HmM10 II.smr'
-fN = r'/home/bgeurten/cstart_experiments/sufge1/IntWild/male/movie5/IntM6.smr'
-s2sr = spike2SimpleIO.spike2SimpleReader(fN)
-s2sr.main()
-segSav = spike2SimpleIO.segmentSaver(s2sr,'./testPanda.csv')
-df = segSav.main()[0]
-sd = SpikeDetector.SpikeDetector(df)
-spike_train_df = sd.main()
-"""
-
-#%%
-db = fishDataBase.fishDataBase("/home/bgeurten/fishDataBase",'/home/bgeurten/fishDataBase/fishDataBase_cstart.csv')
-#db.rebase_paths()
-
-for tag in ('rei','sufge1'):
-    multiFileFolder = f'/home/bgeurten/cstart_experiments/{tag}/'
-    # Experiment types CCur couynter current , Ta tapped, Unt untapped, cst, c-startz
-    db.run_multi_trace_folder(multiFileFolder,tag,'cst','08-2019',start_at=0,gui_correction=False)
+import config
+from fish_data_base.fishDataBase import FishDataBase
 
 
+def main() -> None:
+    """Import every rei and sufge1 c-start recording into the database."""
+    database_path = config.get_path("database_path")
+    data_root = config.get_path("data_root")
+    db = FishDataBase(database_path, database_path / "fishDataBase_cstart.csv")
+
+    for tag in ("rei", "sufge1"):
+        folder = data_root / "cstart_experiments" / tag
+        # Experiment tags: CCur counter-current, Ta tapped, Unt untapped, cst c-start.
+        db.run_multi_trace_folder(folder, tag, "cst", "08-2019", start_at=0, gui_correction=False)
+
+
+if __name__ == "__main__":
+    main()

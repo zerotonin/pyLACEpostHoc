@@ -1,73 +1,79 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — run_scripts.analyse_neededTrials_cStart         ║
+# ║  « c-start survival analysis »                                   ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Kaplan-Meier and Cox survival analysis of behavioural response  ║
+# ║  across trials by genotype and sex.                              ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Survival analysis of c-start behavioural response across trials.
+
+Kaplan-Meier curves, pairwise log-rank tests, and a Cox proportional-hazards
+model over genotype and sex. The original analysis was not statistically
+significant, possibly from too few repetitions.
 """
-Survival Analysis on Fish Behavioural Responses
+from __future__ import annotations
 
-This script performs survival analysis on a dataset containing information on fish behaviour.
-Specifically, it utilizes the Kaplan-Meier estimator and Cox Proportional-Hazards model to examine
-the survival curves and hazard rates for different genotypes and sexes of fish. 
-Note: The analyses do not yield statistically significant results, which could be attributed 
-either to the lack of repetitions or to the specific variables like sex and genotype under consideration.
-
-Author: Bart Geurten
-"""
-
-import pandas as pd
 import matplotlib.pyplot as plt
-from lifelines import KaplanMeierFitter, CoxPHFitter
+import pandas as pd
+from lifelines import CoxPHFitter, KaplanMeierFitter
 from lifelines.statistics import logrank_test
-import numpy as np
 
-# Load the dataset
-df = pd.read_csv('/home/bgeurten/fishDataBase/c-start_trial.csv')
+import config
 
-# Data cleaning: Strip leading and trailing spaces from column names and column data
-df.columns = df.columns.str.strip()
-df['Sex'] = df['Sex'].str.strip()
+GENOTYPE_CODES = {"Int": 0, "Ht": 1, "Hm": 2}
 
-# Convert 'Sex' and 'Genotype' columns to categorical data types
-df['Genotype'] = df['Genotype'].astype('category')
-df['Sex'] = df['Sex'].astype('category')
 
-# Confirm that the columns are now correctly named
-print(df.columns)
+def load_trials(csv_path) -> pd.DataFrame:
+    """Load and clean the c-start trial CSV."""
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.strip()
+    df["Sex"] = df["Sex"].str.strip()
+    df["Genotype"] = df["Genotype"].astype("category")
+    df["Sex"] = df["Sex"].astype("category")
+    return df
 
-# Initialize the Kaplan-Meier Fitter
-kmf = KaplanMeierFitter()
 
-# Plot survival curves for Male and Female across different genotypes
-for sex in ['M', 'F']:
-    for label, grouped_df in df[df['Sex'] == sex].groupby('Genotype'):
-        kmf.fit(grouped_df['Trial'], event_observed=grouped_df['Behav_Resp'], label=f"{label}_{sex}")
-        kmf.plot()
+def plot_survival_curves(df: pd.DataFrame) -> None:
+    """Plot Kaplan-Meier survival curves per sex and genotype."""
+    kmf = KaplanMeierFitter()
+    for sex in ["M", "F"]:
+        for label, grouped in df[df["Sex"] == sex].groupby("Genotype"):
+            kmf.fit(grouped["Trial"], event_observed=grouped["Behav_Resp"], label=f"{label}_{sex}")
+            kmf.plot()
 
-# Separate the data by Genotype
-df_Int = df[df['Genotype'] == 'Int']
-df_Ht = df[df['Genotype'] == 'Ht']
-df_Hm = df[df['Genotype'] == 'Hm']
 
-# Perform log-rank tests between genotypes
-results = logrank_test(df_Int['Trial'], df_Ht['Trial'], event_observed_A=df_Int['Behav_Resp'], event_observed_B=df_Ht['Behav_Resp'])
-print('\nInternal vs Heterozygous')
-results.print_summary()
+def print_logrank_tests(df: pd.DataFrame) -> None:
+    """Print pairwise log-rank tests between genotypes."""
+    groups = {name: df[df["Genotype"] == name] for name in ("Int", "Ht", "Hm")}
+    for a, b in [("Int", "Ht"), ("Int", "Hm"), ("Hm", "Ht")]:
+        result = logrank_test(
+            groups[a]["Trial"], groups[b]["Trial"],
+            event_observed_A=groups[a]["Behav_Resp"], event_observed_B=groups[b]["Behav_Resp"],
+        )
+        print(f"\n{a} vs {b}")
+        result.print_summary()
 
-results = logrank_test(df_Int['Trial'], df_Hm['Trial'], event_observed_A=df_Int['Behav_Resp'], event_observed_B=df_Hm['Behav_Resp'])
-print('\nInternal vs Homozygous')
-results.print_summary()
 
-results = logrank_test(df_Hm['Trial'], df_Ht['Trial'], event_observed_A=df_Hm['Behav_Resp'], event_observed_B=df_Ht['Behav_Resp'])
-print('\nHomozygous vs Heterozygous')
-results.print_summary()
+def fit_cox_model(df: pd.DataFrame) -> None:
+    """Fit and summarise a Cox proportional-hazards model."""
+    df = df.copy()
+    df["Genotype"] = df["Genotype"].map(GENOTYPE_CODES).apply(int)
+    try:
+        cph = CoxPHFitter()
+        cph.fit(df, duration_col="Trial", event_col="Behav_Resp")
+        cph.print_summary()
+    except Exception as exc:
+        print("Error occurred:", exc)
 
-# Initialize the CoxPHFitter
-cph = CoxPHFitter()
 
-# Map the genotypes to integers for CoxPH fitting
-genotype_mapping = {'Int': 0, 'Ht': 1, 'Hm': 2}
-df['Genotype'] = df['Genotype'].map(genotype_mapping)
-df['Genotype'] = df['Genotype'].apply(int)
+def main() -> None:
+    """Run the full c-start survival analysis."""
+    df = load_trials(config.get_path("database_path") / "c-start_trial.csv")
+    plot_survival_curves(df)
+    print_logrank_tests(df)
+    fit_cox_model(df)
+    plt.show()
 
-# Fit the Cox Proportional-Hazards model
-try:
-    cph.fit(df, duration_col='Trial', event_col='Behav_Resp')
-    cph.print_summary()
-except Exception as e:
-    print("Error occurred:", e)
+
+if __name__ == "__main__":
+    main()
