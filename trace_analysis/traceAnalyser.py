@@ -1,375 +1,320 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — trace_analysis.traceAnalyser                    ║
+# ║  « pixel traces to millimetre kinematics »                       ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Turns a corrected pixel trace into millimetre trajectories,     ║
+# ║  spatial histograms, in-zone metrics, and uniform mid-lines.     ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Convert a corrected pixel trace into millimetre-space kinematics."""
+from __future__ import annotations
 
-from sqlite3 import enable_shared_cache
 import numpy as np
 from scipy.interpolate import LinearNDInterpolator, interp1d
 
-class traceAnalyser():
-    """
-    A class for analyzing fish trace data from movies. The class takes traceCorrectorObj as input and processes the
-    data to compute various parameters related to the fish's movements, position, and other characteristics.
+from deprecation import deprecated_alias, deprecated_class_alias
+
+# Rectangular in-zone margins in millimetres: [[x_min, y_min], [x_max, y_max]].
+ZONE_MARGINS: np.ndarray = np.array([[40, 11.5], [163, 31.5]])
+DEFAULT_SPATIAL_BINS: list[int] = [16, 8]
+DEFAULT_MIDLINE_POINTS: int = 10
+
+
+class TraceAnalyser:
+    """Analyse a fish trace, producing millimetre-space kinematic measures.
+
+    Takes a ``traceCorrector``-like object and derives trajectories, spatial
+    occupancy, in-zone behaviour, and uniform mid-lines.
+
+    Args:
+        traceCorrectorObj:  Source of corrected pixel traces and metadata.
+        default_arena_size: (y, x) arena extent in millimetres for the
+                            experiment.
     """
 
-    def __init__(self,traceCorrectorObj,default_arena_size):
-        """
-        Initializes the traceAnalyser object with given traceCorrectorObj and initializes various attributes.
-
-        Args:
-            traceCorrectorObj: An object containing trace correction data.
-        """
-        # some data already is completely analysed in MatLab than
+    def __init__(self, traceCorrectorObj, default_arena_size) -> None:
         self.mm_tra_available = traceCorrectorObj.mmTraceAvailable
+        self._load_trace_data(traceCorrectorObj)
+        self._load_movie_meta(traceCorrectorObj)
+        self.make_movie_idx()
+        self._load_metadata(traceCorrectorObj, default_arena_size)
+        self._setup_arena(traceCorrectorObj)
+        self.zoneMargins = ZONE_MARGINS
+        self._preallocate(traceCorrectorObj)
 
+    def _load_trace_data(self, obj) -> None:
+        """Copy the pixel-based and body-based trace arrays off the source."""
         # fish data -> pixel based
-        self.head_pix            = traceCorrectorObj.head 
-        self.tail_pix            = traceCorrectorObj.tail 
-        self.contour_pix         = traceCorrectorObj.contour 
-        self.midLine_pix         = traceCorrectorObj.midLine 
+        self.head_pix = obj.head
+        self.tail_pix = obj.tail
+        self.contour_pix = obj.contour
+        self.midLine_pix = obj.midLine
         # fish data -> body based
-        self.bendability      = traceCorrectorObj.matLabLoader.bendability
-        self.binnedBend       = traceCorrectorObj.matLabLoader.binnedBend
-        self.saccs            = traceCorrectorObj.matLabLoader.saccs
-        self.trigAveSacc      = traceCorrectorObj.matLabLoader.trigAveSacc
-        self.medMaxVelocities = traceCorrectorObj.matLabLoader.medMaxVelocities
+        self.bendability = obj.matLabLoader.bendability
+        self.binnedBend = obj.matLabLoader.binnedBend
+        self.saccs = obj.matLabLoader.saccs
+        self.trigAveSacc = obj.matLabLoader.trigAveSacc
+        self.medMaxVelocities = obj.matLabLoader.medMaxVelocities
 
-        # movie data
-        self.headerDict    = traceCorrectorObj.headerDict
-        self.pixelOffset   = traceCorrectorObj.pixelOffset
-        self.frameOffset   = traceCorrectorObj.frameShift
-        self.traceLenFrame = traceCorrectorObj.allocated_frames
-        self.originFrame   = traceCorrectorObj.originFrame
-        self.fps           = traceCorrectorObj.fps
-        self.traceLenSec   = self.traceLenFrame/self.fps
-        self.makeMovieIDX()
+    def _load_movie_meta(self, obj) -> None:
+        """Copy movie timing metadata and derive the trace length in seconds."""
+        self.headerDict = obj.headerDict
+        self.pixelOffset = obj.pixelOffset
+        self.frameOffset = obj.frameShift
+        self.traceLenFrame = obj.allocated_frames
+        self.originFrame = obj.originFrame
+        self.fps = obj.fps
+        self.traceLenSec = self.traceLenFrame / self.fps
 
-        # meta data
-        self.genotype = traceCorrectorObj.dataDict['genotype'] 
-        self.sex      = traceCorrectorObj.dataDict['sex']
-        self.animalNo = traceCorrectorObj.dataDict['animalNo']
+    def _load_metadata(self, obj, default_arena_size) -> None:
+        """Copy genotype/sex/animal metadata and the arena size."""
+        self.genotype = obj.dataDict["genotype"]
+        self.sex = obj.dataDict["sex"]
+        self.animalNo = obj.dataDict["animalNo"]
         self.arena_size_by_experiment = default_arena_size
-        self.dataList = list()
+        self.dataList = []
 
-        # arena coordinates 
-        if self.mm_tra_available == False:
-            self.arenaCoords_mm  = np.array([[0,0],[self.arena_size_by_experiment[1],0],
-                                             [self.arena_size_by_experiment[1],self.arena_size_by_experiment[0]],
-                                             [0,self.arena_size_by_experiment[1]]])
-            self.arenaCoords_pix = traceCorrectorObj.boxCoords 
-            self.sortCoordsArenaPix()
-            self.makeInterpolator()
-            self.yaw = traceCorrectorObj.matLabLoader.trace[:,2]
-            
+    def _setup_arena(self, obj) -> None:
+        """Build arena coordinates and the pixel→mm interpolator, or use mm."""
+        if not self.mm_tra_available:
+            # FIXME(flagged): the 4th corner uses arena_size[1] for its y value;
+            # for a rectangle it is expected to be arena_size[0]. Preserved
+            # as-is pending confirmation — see the Sprint 2 notes.
+            self.arenaCoords_mm = np.array([
+                [0, 0],
+                [self.arena_size_by_experiment[1], 0],
+                [self.arena_size_by_experiment[1], self.arena_size_by_experiment[0]],
+                [0, self.arena_size_by_experiment[1]],
+            ])
+            self.arenaCoords_pix = obj.boxCoords
+            self.sort_coords_arena_pix()
+            self.make_interpolator()
+            self.yaw = obj.matLabLoader.trace[:, 2]
         else:
-            self.trace_mm = traceCorrectorObj.matLabLoader.trace
-        self.zoneMargins  = np.array([[40,11.5],[163,31.5]])
+            self.trace_mm = obj.matLabLoader.trace
 
-        #preallocators
-        self.exportDict           = traceCorrectorObj.dataDict
-        self.inZoneFraction       = None
-        self.inZoneDuration       = None  
-        self.probDensity_xCenters = None 
-        self.probDensity_yCenters = None        
-        self.inZoneBendability    = None
-        self.midLineUniform_mm    = None
-        self.midLineUniform_pix   = None
-        self.head_mm              = None    
-        self.tail_mm              = None    
-        self.contour_mm           = None 
-        self.midLine_mm           = None 
-        self.probDensity          = None 
-        self.medianDivergenceFromStraightInZone_DEG =None
+    def _preallocate(self, obj) -> None:
+        """Initialise the export dict and the result placeholders to None."""
+        self.exportDict = obj.dataDict
+        self.inZoneFraction = None
+        self.inZoneDuration = None
+        self.probDensity_xCenters = None
+        self.probDensity_yCenters = None
+        self.inZoneBendability = None
+        self.midLineUniform_mm = None
+        self.midLineUniform_pix = None
+        self.head_mm = None
+        self.tail_mm = None
+        self.contour_mm = None
+        self.midLine_mm = None
+        self.probDensity = None
+        self.medianDivergenceFromStraightInZone_DEG = None
 
-
-    def exportMetaDict(self):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
-
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
-        """
-        # advance exportDict
-        self.exportDict['movieFrameIDX']            = self.movieIDX
-        self.exportDict['fps']                      = self.fps
-        self.exportDict['traceLenFrame']            = self.traceLenFrame
-        self.exportDict['traceLenSec']              = self.traceLenSec
-        self.exportDict['inZoneFraction']           = self.inZoneFraction
-        self.exportDict['inZoneDuration']           = self.inZoneDuration
-        self.exportDict['inZoneMedDiverg_Deg']      = self.medianDivergenceFromStraightInZone_DEG
-        self.exportDict['probDensity_xCenters']     = self.probDensity_xCenters
-        self.exportDict['probDensity_yCenters']     = self.probDensity_yCenters
-        self.exportDict['path2_inZoneBendability']  = None
-        self.exportDict['path2_midLineUniform_mm']  = None
-        self.exportDict['path2_midLineUniform_pix'] = None
-        self.exportDict['path2_head_mm']            = None
-        self.exportDict['path2_tail_mm']            = None
-        self.exportDict['path2_probDensity']        = None
-        
+    def export_meta_dict(self) -> dict:
+        """Return the metadata dict augmented with the scalar trace results."""
+        self.exportDict["movieFrameIDX"] = self.movieIDX
+        self.exportDict["fps"] = self.fps
+        self.exportDict["traceLenFrame"] = self.traceLenFrame
+        self.exportDict["traceLenSec"] = self.traceLenSec
+        self.exportDict["inZoneFraction"] = self.inZoneFraction
+        self.exportDict["inZoneDuration"] = self.inZoneDuration
+        self.exportDict["inZoneMedDiverg_Deg"] = self.medianDivergenceFromStraightInZone_DEG
+        self.exportDict["probDensity_xCenters"] = self.probDensity_xCenters
+        self.exportDict["probDensity_yCenters"] = self.probDensity_yCenters
+        self.exportDict["path2_inZoneBendability"] = None
+        self.exportDict["path2_midLineUniform_mm"] = None
+        self.exportDict["path2_midLineUniform_pix"] = None
+        self.exportDict["path2_head_mm"] = None
+        self.exportDict["path2_tail_mm"] = None
+        self.exportDict["path2_probDensity"] = None
         return self.exportDict
 
-    def exportDataList(self):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
-
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
-        """
-        if not isinstance(self.inZoneBendability,type(None)):
-            self.dataList.append(['inZoneBendability', self.inZoneBendability,3])
-        if not isinstance(self.midLineUniform_mm,type(None)):
-            self.dataList.append(['midLineUniform_mm', np.array(self.midLineUniform_mm),3])
-        if not isinstance(self.midLineUniform_pix,type(None)):
-            self.dataList.append(['midLineUniform_pix',np.array(self.midLineUniform_pix),3])
-        if not isinstance(self.head_mm,type(None)):
-            self.dataList.append(['head_mm',self.head_mm,2])
-        if not isinstance(self.tail_mm,type(None)):
-            self.dataList.append(['tail_mm',self.tail_mm,2])
-        if not isinstance(self.probDensity,type(None)):
-            self.dataList.append(['probDensity',self.probDensity,2])
-        if self.mm_tra_available == True:
-            self.dataList.append(['trace_mm',self.trace_mm,2])
-
+    def export_data_list(self) -> list:
+        """Return the array results as ``[name, array, ndim]`` rows for saving."""
+        if self.inZoneBendability is not None:
+            self.dataList.append(["inZoneBendability", self.inZoneBendability, 3])
+        if self.midLineUniform_mm is not None:
+            self.dataList.append(["midLineUniform_mm", np.array(self.midLineUniform_mm), 3])
+        if self.midLineUniform_pix is not None:
+            self.dataList.append(["midLineUniform_pix", np.array(self.midLineUniform_pix), 3])
+        if self.head_mm is not None:
+            self.dataList.append(["head_mm", self.head_mm, 2])
+        if self.tail_mm is not None:
+            self.dataList.append(["tail_mm", self.tail_mm, 2])
+        if self.probDensity is not None:
+            self.dataList.append(["probDensity", self.probDensity, 2])
+        if self.mm_tra_available:
+            self.dataList.append(["trace_mm", self.trace_mm, 2])
         return self.dataList
 
-    def makeMovieIDX(self):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
-
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
-        """
+    def make_movie_idx(self) -> None:
+        """Build the wrapped movie frame index aligned to the trace origin."""
         if self.frameOffset < 0:
-            frameShift = self.frameOffset + self.traceLenFrame
+            frame_shift = self.frameOffset + self.traceLenFrame
         else:
-            frameShift = self.frameOffset
-            
-        self.movieIDX = (np.arange(self.traceLenFrame)+self.originFrame + frameShift)%self.traceLenFrame
+            frame_shift = self.frameOffset
+        self.movieIDX = (
+            np.arange(self.traceLenFrame) + self.originFrame + frame_shift
+        ) % self.traceLenFrame
 
-    def sortCoordsArenaPix(self):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
+    def sort_coords_arena_pix(self) -> None:
+        """Order the four arena pixel corners consistently (by y then x)."""
+        desc_y = np.flipud(self.arenaCoords_pix[np.argsort(self.arenaCoords_pix[:, 1])])
+        low_row = desc_y[0:2, :]
+        high_row = desc_y[2:, :]
+        self.arenaCoords_pix = np.vstack(
+            (low_row[np.argsort(low_row[:, 0])], np.flipud(high_row[np.argsort(high_row[:, 0])]))
+        )
 
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
-        """
-        descY = np.flipud(self.arenaCoords_pix[np.argsort(self.arenaCoords_pix[:, 1])])
-        lowRow  = descY[0:2,:]
-        highRow = descY[2::,:]
-        self.arenaCoords_pix = np.vstack((lowRow[np.argsort(lowRow[:,0])],np.flipud(highRow[np.argsort(highRow[:,0])])))
-    
-    def makeInterpolator(self):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
+    def make_interpolator(self) -> None:
+        """Build x and y pixel→millimetre interpolators from the arena corners."""
+        x = self.arenaCoords_pix[:, 0]
+        y = self.arenaCoords_pix[:, 1]
+        self.interpX = LinearNDInterpolator(list(zip(x, y)), self.arenaCoords_mm[:, 0])
+        self.interpY = LinearNDInterpolator(list(zip(x, y)), self.arenaCoords_mm[:, 1])
 
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
-        """
-        x = self.arenaCoords_pix[:,0]
-        y = self.arenaCoords_pix[:,1]
-        self.interpX = LinearNDInterpolator(list(zip(x, y)), self.arenaCoords_mm[:,0])
-        self.interpY = LinearNDInterpolator(list(zip(x, y)), self.arenaCoords_mm[:,1])
+    def interpolate_to_mm(self, coords_2d: np.ndarray) -> np.ndarray:
+        """Map an (N, 2) array of pixel coordinates into millimetre space."""
+        return np.vstack((self.interpX(coords_2d), self.interpY(coords_2d))).T
 
-    def interpolate2mm(self,coords2D):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
+    def pixel_trajectories_to_mm(self) -> None:
+        """Convert head/tail/contour/mid-line pixel traces to millimetres.
 
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
-        """
-        return np.vstack((self.interpX(coords2D),self.interpY(coords2D))).T
-
-    def pixelTrajectories2mmTrajectories(self):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
-
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
+        Each conversion is attempted independently; one that fails (e.g. an
+        out-of-hull point the interpolator cannot map) leaves that result as
+        ``None`` rather than aborting the whole trace.
         """
         try:
-            self.head_mm    = self.interpolate2mm(self.head_pix) 
-        except:
-            self.head_mm    =  None
+            self.head_mm = self.interpolate_to_mm(self.head_pix)
+        except Exception:
+            self.head_mm = None
         try:
-            self.tail_mm    = self.interpolate2mm(self.tail_pix) 
-        except:
-            self.tail_mm    =  None
+            self.tail_mm = self.interpolate_to_mm(self.tail_pix)
+        except Exception:
+            self.tail_mm = None
         try:
-            self.contour_mm = [self.interpolate2mm(x) for x in self.contour_pix] 
-        except:
-            self.contour_mm    =  None
+            self.contour_mm = [self.interpolate_to_mm(x) for x in self.contour_pix]
+        except Exception:
+            self.contour_mm = None
         try:
-            self.midLine_mm = [self.interpolate2mm(x) for x in self.midLine_pix] 
-        except:
-            self.midLine_mm    =  None
+            self.midLine_mm = [self.interpolate_to_mm(x) for x in self.midLine_pix]
+        except Exception:
+            self.midLine_mm = None
 
         if not self.mm_tra_available and self.head_mm is not None and self.tail_mm is not None:
             self.create_trace_mm_denovo()
             self.mm_tra_available = True
-            
-    def create_trace_mm_denovo(self):
-        """
-        Create the trace_mm array by averaging the head_mm and tail_mm arrays, and including yaw and speeds.
-        The result is stored in the self.trace_mm attribute.
-        """
-        # Calculate the midpoint between head_mm and tail_mm
-        trace_mm = (self.head_mm + self.tail_mm) / 2.0
 
-        # Reshape the yaw array and concatenate it with trace_mm
+    def create_trace_mm_denovo(self) -> None:
+        """Build ``trace_mm`` from head/tail midpoints, yaw, and speeds."""
+        trace_mm = (self.head_mm + self.tail_mm) / 2.0
         yaw = self.yaw.reshape(-1, 1)
         trace_mm = np.hstack((trace_mm, yaw))
 
-        # Calculate the speeds by differentiating trace_mm along the first axis and multiplying by fps
         speeds = np.diff(trace_mm, axis=0) * self.fps
-
-        # Add a row of NaNs at the end of the speeds array
         speeds = np.vstack((speeds, np.full((1, 3), np.nan)))
-        speeds[:,2] = np.rad2deg(speeds[:,2])
+        speeds[:, 2] = np.rad2deg(speeds[:, 2])
 
-        # Concatenate trace_mm and speeds arrays
-        trace_mm = np.hstack((trace_mm, speeds))
+        self.trace_mm = np.hstack((trace_mm, speeds))
 
-        # Store the result in self.trace_mm
-        self.trace_mm = trace_mm
-
-    def calculateSpatialHistogram(self,bins=[16,8]):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
-
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
-        """
+    def calculate_spatial_histogram(self, bins: list[int] | None = None) -> None:
+        """Compute the 2D occupancy probability density of the trace."""
+        if bins is None:
+            bins = DEFAULT_SPATIAL_BINS
         if self.mm_tra_available:
-            temp = np.histogram2d(self.trace_mm[:,1],self.trace_mm [:,0],bins,density=True) # matlab trajectories are x than y therefore we have to flip the inices here
+            # MATLAB trajectories are x then y, so the indices are flipped here.
+            temp = np.histogram2d(self.trace_mm[:, 1], self.trace_mm[:, 0], bins, density=True)
         else:
-            allMidLine =  np.vstack((self.midLine_mm[:]))
-            temp = np.histogram2d(allMidLine[:,0],allMidLine[:,1],bins,density=True)
-        self.probDensity  = temp[0].T
+            all_mid_line = np.vstack((self.midLine_mm[:]))
+            temp = np.histogram2d(all_mid_line[:, 0], all_mid_line[:, 1], bins, density=True)
+        self.probDensity = temp[0].T
         self.probDensity_xCenters = temp[1]
         self.probDensity_yCenters = temp[2]
 
-
-    def calculateInZoneIDX(self):
-        """
-        Returns a dictionary containing the metadata of the analyzed trace.
-
-        Returns:
-            dict: A dictionary containing metadata of the analyzed trace.
-        """
-        self.zoneIDX = list()
-        for frameI in range(self.traceLenFrame):
-            # shortHand
-            mmt = self.trace_mm[frameI,:]
-            if self. mm_tra_available:
-                boolTests = [(mmt[0] >= self.zoneMargins[0,0]),
-                             (mmt[1] >= self.zoneMargins[0,1]),
-                             (mmt[0] <= self.zoneMargins[1,0]),
-                             (mmt[1] <= self.zoneMargins[1,1])]
-            
+    def calculate_in_zone_idx(self) -> None:
+        """Flag each frame where the fish lies fully within the zone margins."""
+        self.zoneIDX = []
+        for frame_i in range(self.traceLenFrame):
+            mmt = self.trace_mm[frame_i, :]
+            if self.mm_tra_available:
+                bool_tests = [
+                    mmt[0] >= self.zoneMargins[0, 0],
+                    mmt[1] >= self.zoneMargins[0, 1],
+                    mmt[0] <= self.zoneMargins[1, 0],
+                    mmt[1] <= self.zoneMargins[1, 1],
+                ]
             else:
-                mL = self.midLine_mm[frameI]
-                # check if the whole body is inside the zone margins
-                # all is true when all are true
-                #    ... false when all are false            
-                #    ... false when one is true and the rest false
-                #    ... false when one is false and the rest true
-                        
-                boolTests = [(mL[:,0] >= self.zoneMargins[0,0]).all(),
-                            (mL[:,1] >= self.zoneMargins[0,1]).all(),
-                            (mL[:,0] <= self.zoneMargins[1,0]).all(),
-                            (mL[:,1] <= self.zoneMargins[1,1]).all()]
-            
-            if all(boolTests):
-                self.zoneIDX.append(True)
-            else:
-                self.zoneIDX.append(False)
+                # whole body must be inside the margins
+                mid_line = self.midLine_mm[frame_i]
+                bool_tests = [
+                    (mid_line[:, 0] >= self.zoneMargins[0, 0]).all(),
+                    (mid_line[:, 1] >= self.zoneMargins[0, 1]).all(),
+                    (mid_line[:, 0] <= self.zoneMargins[1, 0]).all(),
+                    (mid_line[:, 1] <= self.zoneMargins[1, 1]).all(),
+                ]
+            self.zoneIDX.append(all(bool_tests))
 
-    def inZoneAnalyse(self):
-        """
-        Analyzes the fish's behavior within the specified zone, including the in-zone fraction, duration, bendability,
-        and median divergence from a straight path.
-        """
-        self.calculateInZoneIDX()
-        self.inZoneFraction = sum(self.zoneIDX)/self.traceLenFrame
-        self.inZoneDuration = self.inZoneFraction*self.traceLenSec
-        self.inZoneBendability = [i for indx,i in enumerate(self.bendability) if self.zoneIDX[indx] == True]
-        self.medianDivergenceFromStraightInZone_DEG = np.median([np.sum(np.abs(x[:,1]-180)) for x in self.inZoneBendability])
+    def in_zone_analyse(self) -> None:
+        """Compute in-zone fraction, duration, bendability, and divergence."""
+        self.calculate_in_zone_idx()
+        self.inZoneFraction = sum(self.zoneIDX) / self.traceLenFrame
+        self.inZoneDuration = self.inZoneFraction * self.traceLenSec
+        self.inZoneBendability = [
+            value for idx, value in enumerate(self.bendability) if self.zoneIDX[idx]
+        ]
+        self.medianDivergenceFromStraightInZone_DEG = np.median(
+            [np.sum(np.abs(x[:, 1] - 180)) for x in self.inZoneBendability]
+        )
 
-    
-    def calculateBodyLength(self,midLine):
-        """
-        Calculates the body length of the fish based on the given midLine data.
+    def calculate_body_length(self, mid_line: np.ndarray) -> tuple[float, np.ndarray]:
+        """Return the mid-line body length and the cumulative length axis."""
+        vector_norms = np.linalg.norm(np.diff(mid_line, axis=0), axis=1)
+        body_len = vector_norms.sum()
+        body_axis = np.cumsum(np.insert(vector_norms, 0, 0.0, axis=0))
+        return body_len, body_axis
 
-        Args:
-            midLine (numpy.ndarray): A 2D array containing midLine coordinates.
+    def interp_mid_line(self, mid_line: np.ndarray, step: int = DEFAULT_MIDLINE_POINTS) -> np.ndarray:
+        """Resample a mid-line to ``step`` points evenly spaced along the body."""
+        _body_len, body_axis = self.calculate_body_length(mid_line)
+        f_x = interp1d(body_axis, mid_line[:, 0], kind="cubic")
+        f_y = interp1d(body_axis, mid_line[:, 1], kind="cubic")
+        new_body_axis = np.linspace(0, body_axis[-1], step)
+        return np.vstack((f_x(new_body_axis), f_y(new_body_axis))).T
 
-        Returns:
-            float: The body length of the fish.
-            numpy.ndarray: A 1D array representing the body-length axis.
-        """
-        vectorNorms =np.linalg.norm(np.diff(midLine, axis = 0),axis=1)
-        bodyLen = vectorNorms.sum()
-        bodyAxis = np.cumsum(np.insert(vectorNorms,0,0.,axis =0))
-        return bodyLen,bodyAxis
-    
-    def interpMidLine(self,midLine,step = 10):
-        """
-        Interpolates the given midLine data to create a new midLine with evenly spaced points along the body-length axis.
+    def get_uniform_mid_line(self, mid_line_points: int = DEFAULT_MIDLINE_POINTS) -> None:
+        """Build uniform mid-lines for pixel (and mm, if needed) data."""
+        self.midLineUniform_pix = self.get_uniform_midline_subroutine(
+            self.midLine_pix, mid_line_points
+        )
+        if not self.mm_tra_available:
+            self.midLineUniform_mm = self.get_uniform_midline_subroutine(
+                self.midLine_mm, mid_line_points
+            )
 
-        Args:
-            midLine (numpy.ndarray): A 2D array containing midLine coordinates.
-            step (int, optional): The number of evenly spaced points along the body-length axis. Defaults to 10.
-
-        Returns:
-            numpy.ndarray: A 2D array containing the new interpolated midLine.
-        """
-        # get the bodylength and an axis along the bodylength
-        bodyLen,bodyAxis = self.calculateBodyLength(midLine)
-
-        # create interpolation functions for x and y
-        fX = interp1d(bodyAxis,midLine[:,0],kind='cubic')
-        fY = interp1d(bodyAxis,midLine[:,1],kind='cubic')
-
-        # create ten evenly spaced points along the body-length-axis
-        newBodyAxis = np.linspace(0,bodyAxis[-1],step)
- 
-        # interpolate the midLine at these points
-        newX =fX(newBodyAxis)
-        newY =fY(newBodyAxis)
-
-        #return new midLine
-        return np.vstack((newX,newY)).T
-    
-    def getUniformMidLine(self,midLinePoints =10):
-        """
-        Computes uniform midLines for both pixel-based and millimeter-based data (if available) with the specified
-        number of midLine points.
-
-        Args:
-            midLinePoints (int, optional): The number of points in the uniform midLine. Defaults to 10.
-        """
-        self.midLineUniform_pix = self.get_uniform_midline_subroutine(self.midLine_pix,midLinePoints)
-        if self.mm_tra_available == False:
-            self.midLineUniform_mm = self.get_uniform_midline_subroutine(self.midLine_mm,midLinePoints)
-
-        
-
-    def get_uniform_midline_subroutine(self,mid_line,mid_line_points):
-        """
-        Helper function to compute the uniform midLines for either pixel-based or millimeter-based data.
-
-        Args:
-            mid_line (numpy.ndarray): A 2D array containing midLine coordinates in pixel or millimeter space.
-            mid_line_points (int): The number of points in the uniform midLine.
-
-        Returns:
-            numpy.ndarray: A 3D array containing the uniform midLines for the input data.
-        """
-        mid_line_result = list()
-        for mL in mid_line:
-            mid_line_result.append(self.interpMidLine(mL,mid_line_points))
-        # convert the list to
+    def get_uniform_midline_subroutine(self, mid_line, mid_line_points: int) -> np.ndarray:
+        """Resample every frame's mid-line and stack into one 3D array."""
+        mid_line_result = [self.interp_mid_line(mid_line_frame, mid_line_points)
+                           for mid_line_frame in mid_line]
         return np.array(mid_line_result)
 
-        
+    # Deprecated camelCase method names.
+    exportMetaDict = deprecated_alias(export_meta_dict, "exportMetaDict")
+    exportDataList = deprecated_alias(export_data_list, "exportDataList")
+    makeMovieIDX = deprecated_alias(make_movie_idx, "makeMovieIDX")
+    sortCoordsArenaPix = deprecated_alias(sort_coords_arena_pix, "sortCoordsArenaPix")
+    makeInterpolator = deprecated_alias(make_interpolator, "makeInterpolator")
+    interpolate2mm = deprecated_alias(interpolate_to_mm, "interpolate2mm")
+    pixelTrajectories2mmTrajectories = deprecated_alias(
+        pixel_trajectories_to_mm, "pixelTrajectories2mmTrajectories"
+    )
+    calculateSpatialHistogram = deprecated_alias(
+        calculate_spatial_histogram, "calculateSpatialHistogram"
+    )
+    calculateInZoneIDX = deprecated_alias(calculate_in_zone_idx, "calculateInZoneIDX")
+    inZoneAnalyse = deprecated_alias(in_zone_analyse, "inZoneAnalyse")
+    calculateBodyLength = deprecated_alias(calculate_body_length, "calculateBodyLength")
+    interpMidLine = deprecated_alias(interp_mid_line, "interpMidLine")
+    getUniformMidLine = deprecated_alias(get_uniform_mid_line, "getUniformMidLine")
 
 
-
-
+# Deprecated lower-camelCase class name.
+traceAnalyser = deprecated_class_alias(TraceAnalyser, "traceAnalyser")
