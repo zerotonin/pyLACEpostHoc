@@ -1,5 +1,7 @@
-import numpy as np
 import copy
+
+import numpy as np
+
 
 def bool2indice(boolList):
     """This function builds a succession of indices from a
@@ -49,7 +51,7 @@ def bracket_bools(boolList):
 def bracket_starts_end_of_sequence(startEndSequenceInd,seqLen):
     returnList = copy.deepcopy(startEndSequenceInd)
     for seqI in range(returnList.shape[0]):
-        
+
         if returnList[seqI,0] != 0 and returnList[seqI,1] >= seqLen:
             returnList[seqI,0] = returnList[seqI,0]-1
             returnList[seqI,1] = returnList[seqI,1]+1
@@ -57,4 +59,4 @@ def bracket_starts_end_of_sequence(startEndSequenceInd,seqLen):
 
 def get_duration_from_start_end(startEndInd):
     return np.diff(startEndInd)
-    
+
