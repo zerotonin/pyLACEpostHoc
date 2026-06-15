@@ -76,7 +76,7 @@ Repository = "https://github.com/zerotonin/pyLACEpostHoc"
 "Upstream tracker (pyLACE)" = "https://github.com/zerotonin/pyLACE"
 
 [tool.setuptools]
-py-modules = ["index_tools"]
+py-modules = ["index_tools", "constants", "config", "deprecation"]
 
 [tool.setuptools.packages.find]
 include = [
