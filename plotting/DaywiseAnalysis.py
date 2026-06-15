@@ -1,377 +1,183 @@
-import os
-import glob
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — plotting.DaywiseAnalysis                        ║
+# ║  « day-by-day occupancy heatmaps »                               ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Loads per-day occupancy histograms, splits them by sex, and     ║
+# ║  plots day-wise heatmap grids and box/strip summaries.           ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Day-wise occupancy heatmaps and box/strip summaries of fish movement."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import matplotlib.cm as cm
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import scipy.ndimage
+import seaborn as sns
 from matplotlib.colors import LogNorm
-import matplotlib.cm as cm
+from matplotlib.figure import Figure
+
+from constants import WONG
+
+# Two-colour Wong palette for the male/female hue.
+SEX_PALETTE: list[str] = [WONG["sky_blue"], WONG["orange"]]
 
 
 class DaywiseAnalysis:
+    """Plot day-wise occupancy heatmaps and box/strip summaries.
+
+    Args:
+        df:               Day-wise analysis metadata (sex, IDs, metrics).
+        parent_directory: Directory tree holding the per-fish ``.npy`` histograms.
     """
-    A class for plotting daywise histograms and boxplots of fish movement data.
 
-    Attributes:
-        df (pandas.DataFrame): The DataFrame containing the daywise analysis data.
-        histogram_file_positions (list): A list of file paths to the histogram files.
-        fishID (list): A list of tuples where each tuple contains fishID and tanknumber.
-        hists (numpy.ndarray): A 4D numpy array of histograms.
-
-    Methods:
-        run_analysis(): Loads the normalized histograms, sorts them by sex, calculates the median histograms, 
-                        creates daywise histogram plots for male and female fish, and generates a boxplot.
-    """
-    
-    def __init__(self,df,parent_directory):
-        """
-        Initialize the Back class with the parent_directory and tag.
-
-        Args:
-            df (pandas.DataFrame): The DataFrame containing the daywise analysis data.
-            parent_directory (str): The path to the parent directory containing the histogram data.
-        
-        """
+    def __init__(self, df: pd.DataFrame, parent_directory: str | Path) -> None:
         self.df = df
         self.parent_directory = parent_directory
         self.histogram_file_positions = self.find_npy_files(self.parent_directory)
         self.fishID, self.hists = self.load_normed_histograms(self.histogram_file_positions)
 
-
-    def get_day_data(self, data_3d, day):
-        """
-        Get the data for a specific day from a 3D array.
-
-        Args:
-            data_3d (numpy.ndarray): A 3D numpy array containing data for multiple days.
-            day (int): The day for which the data is required.
-
-        Returns:
-            numpy.ndarray: A 2D numpy array containing data for the specified day.
-        """
-
+    def get_day_data(self, data_3d: np.ndarray, day: int) -> np.ndarray:
+        """Return the 2D slice for a given 1-based day."""
         return data_3d[day - 1]
 
-    def plot_histogram(self, ax, data, cmap, norm, day):
-        """
-        Plot a heatmap of the data on the given axis.
-
-        Args:
-            ax (matplotlib.axes.Axes): The axis to plot the heatmap on.
-            data (numpy.ndarray): A 2D numpy array containing the data to plot.
-            cmap (str): The colormap to use for the heatmap.
-            norm (matplotlib.colors.Normalize): The normalization used for scaling data to colormap.
-            day (int): The day number to be displayed in the plot title.
-        """
+    def plot_histogram(self, ax, data: np.ndarray, cmap, norm, day: int) -> None:
+        """Plot one smoothed day heatmap on ``ax``."""
         data_smooth = scipy.ndimage.zoom(data, 3)
-        sns.heatmap(
-            data=data_smooth,
-            cmap=cmap,
-            norm=norm,
-            ax=ax,
-        )
-        ax.set_title(f'Day {day}')
+        sns.heatmap(data=data_smooth, cmap=cmap, norm=norm, ax=ax)
+        ax.set_title(f"Day {day}")
         ax.set_axis_off()
 
-    def create_daywise_histograms(self, data_3d):
-        """
-        Create a 4x6 grid of heatmaps for each day's histogram using the provided 3D data.
-
-        Args:
-            data_3d (numpy.ndarray): A 3D numpy array containing data for multiple days.
-
-        Returns:
-            tuple: A tuple containing:
-                - matplotlib.figure.Figure: The figure containing the 4x6 grid of heatmaps.
-                - matplotlib.figure.Figure: The figure containing the colorbar for the heatmaps.
-        """
-        # Calculate global color axis limits
+    def create_daywise_histograms(self, data_3d: np.ndarray) -> tuple[Figure, Figure]:
+        """Build a 4x6 grid of day heatmaps plus a standalone colour-bar figure."""
         vmin, vmax = np.nanmin(data_3d[data_3d > 0]), np.nanmax(data_3d)
-        
-        # Create a colormap
         cmap = "viridis"
-        norm = LogNorm(vmin=vmin if vmin > 0 else 0.01, vmax=vmax)  # Ensure vmin is strictly positive
-        
-        # Create a 4x6 subplot grid
-        fig, axes = plt.subplots(4, 6, figsize=(24, 16), sharex=True, sharey=True, facecolor='white')
-        axes = axes.flatten()  # Flatten the 2D list to 1D for easier iteration
-        
-        # Set a dark background
-        plt.style.use('dark_background')
-        
-        # Plot histograms
-        for day, ax in enumerate(axes):
-            if day < data_3d.shape[0]:  # Check that we have data for this day
-                day_data = data_3d[day]
-                self.plot_histogram(ax, day_data, cmap, norm, day+1)
-                if day == 18:  # For 19th plot (index 18), add labels
-                    ax.set_xlabel('X (cm)')
-                    ax.set_ylabel('Y (cm)')
-            else:
-                ax.axis('off')  # If there's no data for this day, hide the axis
+        norm = LogNorm(vmin=vmin if vmin > 0 else 0.01, vmax=vmax)
 
-        # Create a colorbar in a separate figure
-        fig_cbar = plt.figure(figsize=(3, 8), facecolor='white')
-        cbar_ax = fig_cbar.add_axes([0.1, 0.2, 0.3, 0.6])
-        cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax, shrink=0.8)
-        cbar.ax.tick_params(labelsize=14, colors='black')
-        return fig,fig_cbar
+        # Scope the dark style so it does not leak into the caller's later plots.
+        with plt.style.context("dark_background"):
+            fig, axes = plt.subplots(4, 6, figsize=(24, 16), sharex=True, sharey=True,
+                                     facecolor="white")
+            axes = axes.flatten()
+            for day, ax in enumerate(axes):
+                if day < data_3d.shape[0]:
+                    self.plot_histogram(ax, data_3d[day], cmap, norm, day + 1)
+                    if day == 18:
+                        ax.set_xlabel("X (cm)")
+                        ax.set_ylabel("Y (cm)")
+                else:
+                    ax.axis("off")
 
+            fig_cbar = plt.figure(figsize=(3, 8), facecolor="white")
+            cbar_ax = fig_cbar.add_axes([0.1, 0.2, 0.3, 0.6])
+            cbar = plt.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap), cax=cbar_ax, shrink=0.8)
+            cbar.ax.tick_params(labelsize=14, colors="black")
+        return fig, fig_cbar
 
-    def create_vertical_box_stripplot(self, x_col, y_col, hue_col=None, hue_order=None):
-        """
-        Creates a vertical box and strip plot for the specified DataFrame and columns.
-
-        Args:
-            df (pandas.DataFrame): The DataFrame to use for plotting.
-            x_col (str): The name of the column to use as the x-axis.
-            y_col (str): The name of the column to use as the y-axis.
-            hue_col (str, optional): The name of the column to use for the hue. Defaults to None.
-            hue_order (list, optional): The order to use for the hue categories. Defaults to None.
-        """
+    def create_vertical_box_stripplot(self, x_col: str, y_col: str, hue_col: str | None = None,
+                                      hue_order=None) -> Figure:
+        """Draw a box + strip plot of ``y_col`` by ``x_col``, split by ``hue_col``."""
         sns.set_theme(style="ticks")
-
-        # Initialize the figure with a logarithmic y axis
-        f, ax = plt.subplots(figsize=(7, 6))
-        #ax.set_yscale("log")
-
-        # Plot the data with vertical boxes
-        sns.boxplot(x=x_col, y=y_col, hue=hue_col, hue_order=hue_order, data=self.df, whis=[0, 100], width=.6, palette="vlag")
-        
-        # Add in points to show each observation
-        sns.stripplot(x=x_col, y=y_col, hue=hue_col, hue_order=hue_order, data=self.df, size=4, color=".3", linewidth=0)
-        
-        # Tweak the visual presentation
+        fig, ax = plt.subplots(figsize=(7, 6))
+        sns.boxplot(x=x_col, y=y_col, hue=hue_col, hue_order=hue_order, data=self.df,
+                    whis=[0, 100], width=0.6, palette=SEX_PALETTE)
+        sns.stripplot(x=x_col, y=y_col, hue=hue_col, hue_order=hue_order, data=self.df,
+                      size=4, color=".3", linewidth=0)
         ax.yaxis.grid(True)
         ax.set(xlabel="")
         sns.despine(trim=True, left=True)
-        
-        return f
+        return fig
 
-    def find_npy_files(self,directory):
-        """
-        Find all npy files in a directory including its subdirectories.
+    def find_npy_files(self, directory: str | Path) -> list[Path]:
+        """Return every ``.npy`` file under ``directory`` (recursively)."""
+        return sorted(Path(directory).rglob("*.npy"))
 
-        Args:
-            directory (str): The path to the directory to search.
+    def extract_fishID_tanknumber(self, file_path: str | Path) -> tuple[int, str]:
+        """Parse (tank number, fish ID) from a histogram file's parent folder."""
+        parts = Path(file_path).parent.name.split("__")
+        tanknumber = int(parts[0].replace("tankNum_", ""))
+        fish_id = parts[1].replace("fishID_", "")
+        return tanknumber, fish_id
 
-        Returns:
-            file_list (list): A list of paths to the npy files.
-        """
-        file_list = []
-        for dirpath, dirnames, filenames in os.walk(directory):
-            for file in glob.glob(os.path.join(dirpath, "*.npy")):
-                file_list.append(file)
-        return file_list
-
-    def extract_fishID_tanknumber(self, file_path):
-        """
-        Extract fishID and tanknumber from the file path.
-
-        Args:
-            file_path (str): The file path containing fishID and tanknumber.
-
-        Returns:
-            tuple: A tuple containing fishID (integer) and tanknumber (string).
-        """
-        # Extract the directory containing fishID and tanknumber from the file path
-        directory = os.path.dirname(file_path)
-
-        # Extract fishID and tanknumber from the directory name
-        parts = directory.split(os.path.sep)[-1].split('__')
-        tanknumber = int(parts[0].replace('tankNum_', ''))
-        fishID = parts[1].replace('fishID_', '')
-
-        return tanknumber, fishID
-
-    def load_npy_file(self, file_path):
-        """
-        Load the data from a .npy file.
-
-        Args:
-            file_path (str): The file path to the .npy file.
-
-        Returns:
-            numpy.ndarray: The numpy array containing the data from the .npy file.
+    def load_npy_file(self, file_path: str | Path) -> np.ndarray:
+        """Load a ``.npy`` histogram file.
 
         Raises:
-            FileNotFoundError: If the .npy file does not exist.
-            ValueError: If the file_path is not a string.
+            FileNotFoundError: If the file does not exist.
         """
-        if not isinstance(file_path, str):
-            raise ValueError("The file_path should be a string.")
+        path = Path(file_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"No .npy file found at {path}")
+        return np.load(path)
 
-        if not os.path.isfile(file_path):
-            raise FileNotFoundError(f"No .npy file found at {file_path}")
-
-        return np.load(file_path)
-
-    def normalise_histograms(self, histogram):
-        """
-        Normalises the provided histogram.
-
-        The normalisation is performed over the second and third axes of the histogram. 
-        It divides each value in the histogram by the sum of all values in the same 2D slice.
-
-        Args:
-            histogram (numpy.ndarray): A 3D numpy array representing the histogram to be normalised.
-
-        Returns:
-            numpy.ndarray: The normalised histogram.
+    def normalise_histograms(self, histogram: np.ndarray) -> np.ndarray:
+        """Normalise each 2D day slice of a 3D histogram to sum to one.
 
         Raises:
-            ValueError: If the input is not a 3D numpy array.
+            ValueError: If ``histogram`` is not a 3D array.
         """
         if not isinstance(histogram, np.ndarray) or histogram.ndim != 3:
             raise ValueError("The input histogram should be a 3D numpy array.")
-
         return histogram / histogram.sum(axis=(1, 2), keepdims=True)
-        
 
-    def adjust_histogram_shape(self, hist, max_days):
-        """
-        Adjust the shape of the histogram in the first axis to match the max_days.
-        If there are more than max_days entries, drop the first entries.
-        If there are less than max_days entries, fill the rest with np.nan.
-
-        Args:
-            hist (numpy.ndarray): The input histogram.
-            max_days (int): The maximum number of days.
-
-        Returns:
-            numpy.ndarray: The adjusted histogram.
-        """
+    def adjust_histogram_shape(self, hist: np.ndarray, max_days: int) -> np.ndarray:
+        """Trim or NaN-pad a histogram's day axis to exactly ``max_days``."""
         hist_days = hist.shape[0]
-
         if hist_days > max_days:
             return hist[-max_days:]
-        elif hist_days < max_days:
-            padding_shape = (max_days - hist_days,) + hist.shape[1:]
-            padding = np.full(padding_shape, np.nan)
+        if hist_days < max_days:
+            padding = np.full((max_days - hist_days,) + hist.shape[1:], np.nan)
             return np.concatenate((padding, hist), axis=0)
-        else:
-            return hist
+        return hist
 
-    def load_normed_histograms(self,histogram_file_positions, max_days=22):
-        """
-        Loads the normalized histograms from the provided file positions. 
-
-        The histogram data is adjusted according to the max_days parameter. 
-        If there are more than max_days entries, the first entries are dropped. 
-        If there are less than max_days entries, the rest are filled up with np.nan.
-
-        Args:
-            histogram_file_positions (list): List of file paths to the histogram files.
-            max_days (int, optional): The maximum number of days for which the data 
-                                    should be loaded. Defaults to 21.
-
-        Returns:
-            tuple: A tuple containing:
-                - list: A list of tuples where each tuple contains fishID and tanknumber.
-                - numpy.ndarray: A 4D numpy array of histograms, where the first axis 
-                                represents the day, and the last axis represents the different fish.
-
-        Raises:
-            FileNotFoundError: If the file in one of the histogram_file_positions does not exist.
-        """
-        fishes = list()
-        histograms = list()
-        for file_position in histogram_file_positions:   
-
+    def load_normed_histograms(
+        self, histogram_file_positions: list, max_days: int = 22
+    ) -> tuple[list, np.ndarray]:
+        """Load, normalise, and day-align every histogram into one 4D array."""
+        fishes = []
+        histograms = []
+        for file_position in histogram_file_positions:
             hist = self.load_npy_file(file_position)
             hist = self.normalise_histograms(hist)
-            hist = self.adjust_histogram_shape(hist, max_days) # Adjust the histogram shape
-            fishID = self.extract_fishID_tanknumber(file_position)
-
-            fishes.append(fishID)
+            hist = self.adjust_histogram_shape(hist, max_days)
+            fishes.append(self.extract_fishID_tanknumber(file_position))
             histograms.append(hist)
+        return fishes, np.stack(histograms, axis=3)
 
-        histograms = np.stack(histograms, axis=3)
-        return fishes, histograms
-
-    def sort_hists_by_sex(self):
-        """
-        Sorts histograms into two arrays for male and female fish based on the sex information in the DataFrame.
-
-        Args:
-            hists (numpy.ndarray): A 4D numpy array of histograms.
-            fishID (list): A list of tuples where each tuple contains fishID and tanknumber.
-            df (pandas.DataFrame): A DataFrame containing the sex information for each fish.
-
-        Returns:
-            tuple: A tuple containing:
-                - numpy.ndarray: A 4D numpy array of histograms for male fish.
-                - numpy.ndarray: A 4D numpy array of histograms for female fish.
-        """
-        # Map each fish ID and tank number to its sex using the DataFrame
-        sex_map = {}
-        for i, row in self.df.iterrows():
-            sex_map[(row['Tank_number'], row['ID'])] = row['Sex']
-
-        # Initialize empty arrays for male and female histograms
-        male_hists   =list()
-        female_hists = list()
-
-        # Sort the histograms into male and female arrays based on the sex of the fish
+    def sort_hists_by_sex(self) -> tuple[np.ndarray, np.ndarray]:
+        """Split the loaded histograms into male and female 4D arrays."""
+        sex_map = {(row["Tank_number"], row["ID"]): row["Sex"] for _, row in self.df.iterrows()}
+        male_hists = []
+        female_hists = []
         for i, (tank_num, fish_id) in enumerate(self.fishID):
             sex = sex_map.get((tank_num, fish_id))
-            if sex == 'M':
-                male_hists.append(self.hists[:,:,:,i])
-            elif sex == 'F':
-                female_hists.append(self.hists[:,:,:,i])
+            if sex == "M":
+                male_hists.append(self.hists[:, :, :, i])
+            elif sex == "F":
+                female_hists.append(self.hists[:, :, :, i])
+        return np.stack(male_hists, axis=3), np.stack(female_hists, axis=3)
 
-        male_hists = np.stack(male_hists, axis=3)
-        female_hists = np.stack(female_hists, axis=3)
-
-        return male_hists, female_hists
-    
-    def create_spatial_histograms(self):
-        """
-        Create spatial histograms for male and female fish, separated by day, using a 4x6 grid of heatmaps.
-
-        The function first sorts the histograms by sex, then normalizes them by computing the median value
-        across all fish for each day. Finally, it creates daywise heatmaps for both male and female fish.
-
-        Returns:
-            tuple: A tuple containing the following matplotlib objects:
-                - male_figure (matplotlib.figure.Figure): The figure containing the 4x6 grid of heatmaps for male fish.
-                - male_figure_cbar (matplotlib.figure.Figure): The figure containing the colorbar for male fish heatmaps.
-                - female_figure (matplotlib.figure.Figure): The figure containing the 4x6 grid of heatmaps for female fish.
-                - female_figure_cbar (matplotlib.figure.Figure): The figure containing the colorbar for female fish heatmaps.
-        """
+    def create_spatial_histograms(self) -> tuple[Figure, Figure, Figure, Figure]:
+        """Build day-wise heatmap grids for the median male and female fish."""
         male_hists, female_hists = self.sort_hists_by_sex()
         male_hists = self.normalise_histograms(np.nanmedian(male_hists, axis=3))
         female_hists = self.normalise_histograms(np.nanmedian(female_hists, axis=3))
-
         male_figure, male_figure_cbar = self.create_daywise_histograms(male_hists)
         female_figure, female_figure_cbar = self.create_daywise_histograms(female_hists)
-
         return male_figure, male_figure_cbar, female_figure, female_figure_cbar
 
-    def create_box_strip_plots(self):
-        """
-        Create vertical box and strip plots for various topics related to fish behavior,
-        separated by day and sex, and return a list of figure handles.
-
-        The function iterates through a list of topics and generates a box and strip plot for each one.
-        The plots are created using the create_vertical_box_stripplot helper function. 
-
-        Returns:
-            figure_handles (list): A list of figure handles for the created box and strip plots.
-        """
+    def create_box_strip_plots(self) -> list[Figure]:
+        """Return one box/strip figure per behavioural metric, split by sex."""
         topics = [
-            'Median_speed_cmPs', 'Gross_speed_cmPs',
-            'Median_activity_duration_s', 'Activity_fraction',
-            'Median_freezing_duration_s', 'Freezing_fraction',
-            'Median_top_duration_s', 'Top_fraction', 'Median_bottom_duration_s',
-            'Bottom_fraction', 'Median_tigmotaxis_duration_s',
-            'Tigmotaxis_fraction', 'Tigmotaxis_transition_freq', 'Latency_to_top_s',
-            'Distance_travelled_cm'
+            "Median_speed_cmPs", "Gross_speed_cmPs", "Median_activity_duration_s",
+            "Activity_fraction", "Median_freezing_duration_s", "Freezing_fraction",
+            "Median_top_duration_s", "Top_fraction", "Median_bottom_duration_s",
+            "Bottom_fraction", "Median_tigmotaxis_duration_s", "Tigmotaxis_fraction",
+            "Tigmotaxis_transition_freq", "Latency_to_top_s", "Distance_travelled_cm",
         ]
-        figure_handles = list()
-        for topic in topics:
-           f =  self.create_vertical_box_stripplot('Day_number', topic, 'Sex', ('M', 'F'))
-           figure_handles.append(f)
-        return figure_handles
-        
+        return [
+            self.create_vertical_box_stripplot("Day_number", topic, "Sex", ("M", "F"))
+            for topic in topics
+        ]
