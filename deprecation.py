@@ -47,3 +47,31 @@ def deprecated_alias(new_callable: F, old_name: str | None = None) -> F:
 
     wrapper.__doc__ = f"Deprecated alias for :func:`{new_name}`."
     return wrapper  # type: ignore[return-value]
+
+
+def deprecated_class_alias(new_cls: type, old_name: str) -> type:
+    """Return a subclass of ``new_cls`` that warns on instantiation.
+
+    Use to keep a renamed class importable under its old name::
+
+        class MediaHandler: ...
+        mediaHandler = deprecated_class_alias(MediaHandler, "mediaHandler")
+
+    The alias is a real subclass, so ``isinstance(obj, new_cls)`` still
+    holds for instances created through the old name.
+    """
+    new_name = new_cls.__name__
+
+    def __init__(self, *args, **kwargs):  # noqa: N807
+        warnings.warn(
+            f"{old_name!r} is deprecated; use {new_name!r} instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        new_cls.__init__(self, *args, **kwargs)
+
+    return type(
+        old_name,
+        (new_cls,),
+        {"__init__": __init__, "__doc__": f"Deprecated alias for :class:`{new_name}`."},
+    )
