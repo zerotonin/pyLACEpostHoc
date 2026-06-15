@@ -22,11 +22,20 @@ version = release
 
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
     "sphinx_autodoc_typehints",
 ]
+
+# Recurse into every subpackage/module and generate stub pages on build.
+autosummary_generate = True
+autodoc_default_options = {
+    "members": True,
+    "undoc-members": True,
+    "show-inheritance": True,
+}
 
 # Heavy / optional backends are mocked so docs build on a bare runner.
 autodoc_mock_imports = [

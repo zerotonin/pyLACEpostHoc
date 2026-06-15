@@ -1,39 +1,21 @@
 API reference
 =============
 
-index_tools
------------
+The whole package is documented automatically.  ``autosummary`` with
+``:recursive:`` walks into every subpackage and module, so new modules
+appear here without editing this file.
 
-.. automodule:: index_tools
-   :members:
-   :undoc-members:
+.. autosummary::
+   :toctree: _autosummary
+   :recursive:
 
-trace_analysis
---------------
-
-.. automodule:: trace_analysis
-   :members:
-
-fish_data_base
---------------
-
-.. automodule:: fish_data_base
-   :members:
-
-data_base_analyser
-------------------
-
-.. automodule:: data_base_analyser
-   :members:
-
-data_handlers
--------------
-
-.. automodule:: data_handlers
-   :members:
-
-plotting
---------
-
-.. automodule:: plotting
-   :members:
+   constants
+   config
+   deprecation
+   index_tools
+   data_handlers
+   trace_analysis
+   fish_data_base
+   data_base_analyser
+   plotting
+   other_fish_related_analysis
