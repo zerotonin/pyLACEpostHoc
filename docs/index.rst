@@ -11,16 +11,10 @@ statistics and figures.
    :maxdepth: 2
    :caption: Contents
 
+   overview
+   quickstart
+   pipeline
    api
-
-Installation
-------------
-
-.. code-block:: bash
-
-   pip install -e ".[full]"      # core + I/O readers + survival stats
-   # or, lightweight:
-   pip install -e .
 
 Indices and tables
 ------------------
