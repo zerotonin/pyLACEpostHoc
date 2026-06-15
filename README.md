@@ -56,6 +56,23 @@ conda env create -f environment.yml
 conda activate pylaceposthoc
 ```
 
+### Configure machine-specific paths (step one)
+
+Data roots are **not** hardcoded. Before running anything, copy the
+template and fill in the real paths for your machine:
+
+```bash
+cp local_paths.template.json local_paths.json   # local_paths.json is gitignored
+$EDITOR local_paths.json                          # set data_root, database_path, figure_root
+```
+
+Paths resolve in three steps: a `PYLACE_POSTHOC_<KEY>` environment
+variable wins, then the active profile in `local_paths.json` (`local`
+by default, or `hpc`; select with `PYLACE_POSTHOC_PROFILE`). Shell and
+SLURM consumers can source the values via `python config.py --export`.
+A missing `local_paths.json` fails loudly and names the template to
+copy.
+
 ## Modules
 
 - `index_tools.py` — boolean-sequence → index helpers (pure numpy).
@@ -74,7 +91,7 @@ conda activate pylaceposthoc
 ```bash
 pip install -e ".[dev]"
 pytest                      # unit tests
-ruff check tests index_tools.py
+ruff check tests index_tools.py constants.py config.py deprecation.py
 ```
 
 Tests, docs, and releases are automated via GitHub Actions
