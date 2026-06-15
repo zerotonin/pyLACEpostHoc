@@ -1,328 +1,215 @@
-import numpy as np
-import matplotlib.pyplot as plt
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — plotting.cStartPlotter                          ║
+# ║  « c-start contour and spike figures »                           ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Builds the combined contour, spike-raster, and parameter figure ║
+# ║  (and its animation) for the c-start startle experiments.        ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Combined contour, spike-raster, and parameter figures for c-start data."""
+from __future__ import annotations
+
+import cv2
 import matplotlib.gridspec as gridspec
-from matplotlib.colors import Normalize
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import patches
 from matplotlib.colorbar import ColorbarBase
 from scipy.interpolate import make_interp_spline
-from matplotlib import patches
-from data_handlers.mediaHandler import mediaHandler
-import cv2
 from tqdm import tqdm
-class cStartPlotter:
+
+from constants import FIGURE_DPI, WONG
+from data_handlers.mediaHandler import MediaHandler
+from deprecation import deprecated_class_alias
+
+CONTOUR_XLIM: tuple[int, int] = (0, 280)   # arena width in pixels
+CONTOUR_YLIM: tuple[int, int] = (0, 130)   # arena height in pixels
+SPIKE_RASTER_XLIM: tuple[int, int] = (0, 5)  # seconds shown in the raster
+THRUST_YLIM: tuple[float, float] = (0.0, 2.5)
+DEFAULT_NUM_CONTOURS: int = 200
+DEFAULT_COMETS_TAIL: int = 25
+ANIMATION_FIGSIZE: tuple[float, float] = (4.16, 3.35)
+ANIMATION_FPS: int = 25
+
+
+class CStartPlotter:
+    """Plot contours, spike occurrences, and parameters in one figure.
+
+    Used for Garg et al. 2023 A and B.
     """
-    A class for plotting the contours, spike occurrences, and two parameters in a single figure.
-    Used for Garag et al 2023 A and B
-    """
+
     def __init__(self) -> None:
-         pass
-         
+        pass
+
     def create_vertical_axes(self):
-        """
-        Create a figure with three vertically arranged axes (ax1, ax2, ax3), and a colorbar axis (cax1)
-        next to ax1.
-
-        Returns
-        -------
-        fig : matplotlib.figure.Figure
-            The Figure object to draw on.
-        ax1, cax1, ax2, ax3 : tuple of matplotlib.axes.Axes
-            The Axes objects for the created subplots.
-        """
-        # Create the figure
+        """Create the figure with three stacked axes plus a colour-bar axis."""
         fig = plt.figure()
-
-        # Set up the gridspec with the desired proportions
         gs_main = gridspec.GridSpec(6, 1)
-        gs_inner = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_main[:3, :], width_ratios=[9, 1], wspace=0.01)
-
-        # Create the three axes with the specified vertical extensions
-        ax1 = plt.subplot(gs_inner[0, 0])  # Top axis taking 3/6 of the vertical space, with space for the colorbar
-        cax1 = plt.subplot(gs_inner[0, 1]) # Colorbar axis next to ax1
-        ax2 = plt.subplot(gs_main[3:5, :])  # Middle axis taking 2/6 of the vertical space
-        ax3 = plt.subplot(gs_main[5, :])    # Bottom axis taking 1/6 of the vertical space
-
+        gs_inner = gridspec.GridSpecFromSubplotSpec(
+            1, 2, subplot_spec=gs_main[:3, :], width_ratios=[9, 1], wspace=0.01
+        )
+        ax1 = plt.subplot(gs_inner[0, 0])   # contours (top 3/6)
+        cax1 = plt.subplot(gs_inner[0, 1])  # colour bar beside ax1
+        ax2 = plt.subplot(gs_main[3:5, :])  # parameters (middle 2/6)
+        ax3 = plt.subplot(gs_main[5, :])    # spike raster (bottom 1/6)
         return fig, (ax1, cax1, ax2, ax3)
 
-    def plot_spike_occurrences(self, spike_df, ax):
-        """
-        Plot spike occurrences as vertical lines on the given axis.
+    def plot_spike_occurrences(self, spike_df, ax) -> None:
+        """Draw each spike time as a short vertical tick on ``ax``."""
+        ax.set_xlim(*SPIKE_RASTER_XLIM)
+        for spike_time in spike_df["spike_peak_s"]:
+            ax.axvline(x=spike_time, ymin=0.45, ymax=0.55, linewidth=1, color=WONG["black"])
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Spike Occurrences")
+        ax.set_yticks([])
 
-        Parameters
-        ----------
-        spike_df : pandas.DataFrame
-            A DataFrame containing spike times in the 'spike_peak_s' column.
-        ax : matplotlib.axes.Axes
-            The Axes object to draw the spike occurrences on.
-        """
-        # Set the x-axis limits
-        ax.set_xlim(0, 5)
-
-        # Iterate through the spike times and plot a short vertical line for each
-        for spike_time in spike_df['spike_peak_s']:
-                ax.axvline(x=spike_time, ymin=0.45, ymax=0.55, linewidth=1, color='k')
-
-        # Set axis labels
-        ax.set_xlabel('Time (s)')
-        ax.set_ylabel('Spike Occurrences')
-        ax.set_yticks([])  # Remove y-axis ticks as they are not relevant in this plot
-
-    def plot_two_parameters(self, fig, ax, time_ax, param1, param2, param1_label, param2_label,x_lim = None):
-        """
-        Plot two parameters on a single plot with two y-axes.
-
-        Parameters
-        ----------
-        fig : matplotlib.figure.Figure
-            The Figure object to draw on.
-        ax : matplotlib.axes.Axes
-            The Axes object to draw the first parameter data on.
-        timeAx : array-like
-            The time axis for the plot.
-        param1 : array-like
-            The data for the first parameter.
-        param2 : array-like
-            The data for the second parameter.
-        param1_label : str
-            The label for the first parameter data.
-        param2_label : str
-            The label for the second parameter data.
-        """
+    def plot_two_parameters(self, fig, ax, time_ax, param1, param2, param1_label,
+                            param2_label, x_lim=None) -> None:
+        """Plot two parameters against time on twin (log-left) y-axes."""
         if not x_lim:
-            x_lim = ((time_ax[0],time_ax[-1]))
-            
+            x_lim = (time_ax[0], time_ax[-1])
 
-        color = 'tab:blue'
+        color = WONG["blue"]
         ax.plot(time_ax, param1, color=color)
-        ax.set_xlabel('time, s')
+        ax.set_xlabel("time, s")
         ax.set_ylabel(param1_label, color=color)
-        ax.tick_params(axis='y', labelcolor=color)
+        ax.tick_params(axis="y", labelcolor=color)
         ax.set_xlim(x_lim)
-        ax2 = ax.twinx()
-        ax.set_yscale('log')
+        ax.set_yscale("log")
 
-        color = 'xkcd:sky blue'
+        ax2 = ax.twinx()
+        color = WONG["sky_blue"]
         ax2.plot(time_ax, param2, color=color)
         ax2.set_ylabel(param2_label, color=color)
-        ax2.set_ylim((0,2.5))
-        ax2.tick_params(axis='y', labelcolor=color)
+        ax2.set_ylim(THRUST_YLIM)
+        ax2.tick_params(axis="y", labelcolor=color)
 
-    def plot_contours(self, ax, cax, traceContour, fps, num_contours=200, 
-                      colormap='viridis', alpha=0.5, outline=True, background_image=None,
-                      contour_offset = None):
-        """
-        Plot the contours with translucent patches.
-
-        Parameters
-        ----------
-        ax : matplotlib.axes.Axes
-            The Axes object to draw the contours on.
-        cax : matplotlib.axes.Axes
-            The Axes object to draw the colorbar on.
-        traceContour : list of lists
-            A list of lists containing the x and y coordinates of the polygons.
-        fps : float
-            The frame rate of the video.
-        num_contours : int, optional
-            The number of contours to plot, linearly spaced throughout the list. (default: 200)
-        colormap : str, optional
-            The colormap to use for the patches. (default: 'viridis')
-        alpha : float, optional
-            The transparency level for the patches. (default: 0.5)
-        outline : bool, optional
-            Whether to draw a black outline around the patches. (default: True)
-        background_image : array-like, optional
-            The background image to display behind the contours. (default: None)
-        contour_offset : tuple of float, optional
-            The x and y offsets for the contours. (default: None)
-        """
-
-        # Display the background image, if provided
+    def plot_contours(self, ax, cax, trace_contour, fps, num_contours=DEFAULT_NUM_CONTOURS,
+                      colormap="viridis", alpha=0.5, outline=True, background_image=None,
+                      contour_offset=None) -> None:
+        """Plot translucent, time-coloured smoothed contours with a colour bar."""
         if background_image is not None:
             ax.imshow(background_image, zorder=0)
 
-        # Generate indices for linearly spaced contours
-        contour_indices = np.linspace(0, len(traceContour) - 1, num_contours, dtype=int)
-
-        # Get the colormap
+        contour_indices = np.linspace(0, len(trace_contour) - 1, num_contours, dtype=int)
         cmap = plt.get_cmap(colormap)
-        # Find the axis limits
-        min_x, min_y, max_x, max_y = float('inf'), float('inf'), float('-inf'), float('-inf')
 
-        # Plot the contours
         for i, idx in enumerate(contour_indices):
-            contour = np.array(traceContour[idx])
-            # Smooth the contour
+            contour = np.array(trace_contour[idx])
             num_points = len(contour)
             t = np.linspace(0, 1, num_points)
-            new_t = np.linspace(0, 1, num_points * 5)  # Increase the number of points for a smoother contour
-
-            if contour_offset is None:
-                x_spline = make_interp_spline(t, contour[:, 0], k=3)(new_t) 
-                y_spline = make_interp_spline(t, contour[:, 1], k=3)(new_t)
-            else:
-                x_spline = make_interp_spline(t, contour[:, 0], k=3)(new_t) + contour_offset[0]
-                y_spline = make_interp_spline(t, contour[:, 1], k=3)(new_t) + contour_offset[1]
-            smoothed_contour = np.column_stack((x_spline, y_spline))
-
+            new_t = np.linspace(0, 1, num_points * 5)  # upsample for a smooth outline
+            offset = contour_offset if contour_offset is not None else (0, 0)
+            x_spline = make_interp_spline(t, contour[:, 0], k=3)(new_t) + offset[0]
+            y_spline = make_interp_spline(t, contour[:, 1], k=3)(new_t) + offset[1]
             polygon = patches.Polygon(
-                smoothed_contour,
+                np.column_stack((x_spline, y_spline)),
                 closed=True,
                 facecolor=cmap(i / len(contour_indices)),
                 alpha=alpha,
-                edgecolor='black' if outline else None
+                edgecolor="black" if outline else None,
             )
             ax.add_patch(polygon)
 
-
-        ax.set_xlim(0, 280)
-        ax.set_ylim(0, 130)
-        ax.set_aspect('equal')
-
-        # Turn off the tick marks
+        ax.set_xlim(*CONTOUR_XLIM)
+        ax.set_ylim(*CONTOUR_YLIM)
+        ax.set_aspect("equal")
         ax.set_xticks([])
         ax.set_yticks([])
 
-        # Add colorbar
-        norm = plt.Normalize(vmin=0, vmax=(len(traceContour) - 1) / fps *1000)
-        cbar = ColorbarBase(cax, cmap=cmap, norm=norm, orientation='vertical')
-        cbar.set_label('Time (ms)')    
-        
-    def create_final_plot(self, spike_df, time_ax, trace, interp_instant_freq, traceContour, fps,background_image=None):
-        """
-        Create a final plot that combines spike occurrences, two parameters, and contours in a single figure.
+        norm = plt.Normalize(vmin=0, vmax=(len(trace_contour) - 1) / fps * 1000)
+        cbar = ColorbarBase(cax, cmap=cmap, norm=norm, orientation="vertical")
+        cbar.set_label("Time (ms)")
 
-        Parameters
-        ----------
-        spike_df : pandas.DataFrame
-            A DataFrame containing spike times in the 'spike_peak_s' column.
-        time_ax : array-like
-            The time axis for the plot.
-        trace : array-like
-            The trace data.
-        interp_instant_freq : array-like
-            The interpolated instantaneous frequency data.
-        traceContour : list of lists
-            A list of lists containing the x and y coordinates of the polygons.
-        fps : float
-            The frame rate of the video.
-
-        Returns
-        -------
-        f : matplotlib.figure.Figure
-            The Figure object.
-        ax1, cax1, ax2, ax3 : tuple of matplotlib.axes.Axes
-            The Axes objects for the created subplots.
-        background_image : array-like, optional
-            The background image to display behind the contours. (default: None)
-        """
-
-        f, ax_list = self.create_vertical_axes()
+    def create_final_plot(self, spike_df, time_ax, trace, interp_instant_freq, trace_contour,
+                          fps, background_image=None):
+        """Assemble the static contour/parameter/spike figure."""
+        fig, ax_list = self.create_vertical_axes()
         self.plot_spike_occurrences(spike_df, ax_list[3])
-        self.plot_two_parameters(f, ax_list[2], time_ax, interp_instant_freq, np.abs(trace[:, 3]),
-                                  'instant. spike frequency, Hz', 'thrust, m/s')
-        self.plot_contours(ax_list[0], ax_list[1], traceContour, fps, num_contours=200, colormap='viridis', alpha=0.5,background_image=background_image)
+        self.plot_two_parameters(
+            fig, ax_list[2], time_ax, interp_instant_freq, np.abs(trace[:, 3]),
+            "instant. spike frequency, Hz", "thrust, m/s",
+        )
+        self.plot_contours(
+            ax_list[0], ax_list[1], trace_contour, fps,
+            num_contours=DEFAULT_NUM_CONTOURS, colormap="viridis", alpha=0.5,
+            background_image=background_image,
+        )
+        return fig, ax_list
 
-        return f,ax_list
-    
-    def create_animated_plot(self, spike_df, time_ax, trace, interp_instant_freq, traceContour, 
-                             fps, path_to_mediaFile,animation_file_position, comets_tail = 25, contour_offSet = None,
-                             round_robin_offset = None):
-        """
-        Create an animated plot with gradual data filling and contour plot for the last 50 frames.
+    def _render_animation_frame(self, spike_df, time_ax, frame, trace, interp_instant_freq,
+                                trace_contour, fps, background_image, contour_offset, x_lim):
+        """Render one animation frame to an RGB image array."""
+        fig, ax_list = self.create_vertical_axes()
+        self.plot_spike_occurrences(spike_df[spike_df["spike_peak_s"] <= time_ax[frame]], ax_list[3])
+        for side in ("right", "left", "top"):
+            ax_list[3].spines[side].set_visible(False)
+        ax_list[3].set_yticks([])
+        ax_list[3].set_ylabel("Spikes")
 
-        Parameters are the same as `create_final_plot`, except for:
-        background_images : list of array-like
-            A list of background images to display behind the contours, one for each frame.
-        """
+        self.plot_two_parameters(
+            fig, ax_list[2], time_ax[:frame + 1], interp_instant_freq[:frame + 1],
+            np.abs(trace[:frame + 1, 3]), "instant. spike frequency, Hz", "thrust, m/s",
+            x_lim=x_lim,
+        )
+        ax_list[2].set_xticks([])
+        ax_list[2].set_xlabel("")
+        ax_list[2].set_xticklabels([])
 
-        plt.rcParams.update({'font.size':8})
-        # Prepare an empty list to store the frames
+        self.plot_contours(
+            ax_list[0], ax_list[1], trace_contour, fps, num_contours=DEFAULT_NUM_CONTOURS,
+            colormap="viridis", alpha=0.025, background_image=background_image,
+            contour_offset=contour_offset,
+        )
+
+        fig.set_size_inches(*ANIMATION_FIGSIZE)
+        fig.set_dpi(FIGURE_DPI)
+        fig.canvas.draw()
+        image = np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy()
+        plt.close(fig)
+        return image
+
+    def create_animated_plot(self, spike_df, time_ax, trace, interp_instant_freq, trace_contour,
+                             fps, path_to_media_file, animation_file_position,
+                             comets_tail=DEFAULT_COMETS_TAIL, contour_offset=None,
+                             round_robin_offset=None):
+        """Render a comet-tail contour animation synced to spikes and thrust."""
+        plt.rcParams.update({"font.size": 8})
         frames = []
-        mho = mediaHandler(path_to_mediaFile,'movie',fps,bufferSize = 2000)
+        media = MediaHandler(path_to_media_file, "movie", fps)
 
-        # Get the frame indices for the movie and contours
-        frame_indices = self.get_frame_indices(time_ax, mho.fps)
-        # Get the index to read oput video
+        frame_indices = self.get_frame_indices(time_ax, media.fps)
         video_index = frame_indices
-        if round_robin_offset != None:
-            video_index = np.roll(video_index,round_robin_offset)
+        if round_robin_offset is not None:
+            video_index = np.roll(video_index, round_robin_offset)
 
-
-        # Loop over all frames
-        for frame in tqdm(range(len(time_ax)),desc='Making frames'):
-        #for frame in tqdm(range(2000,2100),desc='Making frames'):
-            
+        x_lim = (time_ax[0], time_ax[-1])
+        for frame in tqdm(range(len(time_ax)), desc="Making frames"):
             current_frame_index = frame_indices[frame]
-            if current_frame_index >= comets_tail:
-                try:
-                    # Prepare Video data
-                    current_traceContour = traceContour[current_frame_index-comets_tail:current_frame_index]
-                    current_background_image = mho.getFrame(int(video_index[frame]))
+            if current_frame_index < comets_tail:
+                continue
+            try:
+                current_contour = trace_contour[current_frame_index - comets_tail:current_frame_index]
+                background_image = media.get_frame(int(video_index[frame]))
+                frames.append(self._render_animation_frame(
+                    spike_df, time_ax, frame, trace, interp_instant_freq, current_contour,
+                    fps, background_image, contour_offset, x_lim,
+                ))
+            except Exception:
+                pass
 
-                    # Prepare the data for this frame
-                    current_spike_df = spike_df[spike_df['spike_peak_s'] <= time_ax[frame]]
-                    current_trace = trace[:frame+1]
-                    current_interp_instant_freq = interp_instant_freq[:frame+1]
-
-                    # Create the plot for this frame
-                    f, ax_list = self.create_vertical_axes()
-                    self.plot_spike_occurrences(current_spike_df, ax_list[3])
-                    ax_list[3].spines['right'].set_visible(False)
-                    ax_list[3].spines['left'].set_visible(False)
-                    ax_list[3].spines['top'].set_visible(False)
-                    ax_list[3].set_yticks([])
-                    ax_list[3].set_ylabel('Spikes')  # remove x-axis label
-
-                    self.plot_two_parameters(f, ax_list[2], time_ax[:frame+1], current_interp_instant_freq, np.abs(current_trace[:, 3]),
-                                            'instant. spike frequency, Hz', 'thrust, m/s',x_lim=(time_ax[0],time_ax[-1]))
-                    
-                    ax_list[2].set_xticks([])
-                    ax_list[2].set_xlabel('')  # remove x-axis label
-                    ax_list[2].set_xticklabels([])  # remove xtick labels
-
-                    self.plot_contours(ax_list[0], ax_list[1], current_traceContour, fps, num_contours=200, colormap='viridis', 
-                                       alpha=0.025,background_image=current_background_image,contour_offset=contour_offSet)
-
-                    #f.tight_layout()
-                    # Convert the plot to an image and add it to the list of frames
-                    f.set_size_inches(4.16, 3.35)
-                    f.set_dpi(300)  # Add this line
-                    f.canvas.draw()
-                    image = np.frombuffer(f.canvas.tostring_rgb(), dtype='uint8').reshape(f.canvas.get_width_height()[::-1] + (3,))
-                    frames.append(image)
-
-                    # Close the figure to free up memory
-                    plt.close(f)
-                except:
-                    pass
-
-        # Create the animation
-        animation = cv2.VideoWriter(animation_file_position, cv2.VideoWriter_fourcc(*'mp4v'), 25, frames[0].shape[:2][::-1])
-        for frame in frames:
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            animation.write(frame_bgr)
-
+        animation = cv2.VideoWriter(
+            animation_file_position, cv2.VideoWriter_fourcc(*"mp4v"),
+            ANIMATION_FPS, frames[0].shape[:2][::-1],
+        )
+        for frame_image in frames:
+            animation.write(cv2.cvtColor(frame_image, cv2.COLOR_RGB2BGR))
         animation.release()
-
         return animation
 
-    def get_frame_indices(self, time_ax, fps):
-        """
-        Get the corresponding frame index for each point in time_ax.
+    def get_frame_indices(self, time_ax, fps) -> np.ndarray:
+        """Return the integer video frame index for each point in ``time_ax``."""
+        return (time_ax * fps).astype(int)
 
-        Parameters
-        ----------
-        time_ax : array-like
-            The time axis for the plot.
-        fps : float
-            The frame rate of the video.
 
-        Returns
-        -------
-        frame_indices : numpy.array
-            An array of frame indices corresponding to the times in time_ax.
-        """
-        # Calculate the frame index for each time point
-        frame_indices = (time_ax * fps).astype(int)
-
-        return frame_indices
+# Deprecated lower-camelCase class name.
+cStartPlotter = deprecated_class_alias(CStartPlotter, "cStartPlotter")
