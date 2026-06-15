@@ -1,212 +1,177 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — data_handlers.spike2SimpleIO                    ║
+# ║  « read and tabulate Spike2 smr files »                          ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Wraps neo to read Cambridge Electronics Spike2 recordings into  ║
+# ║  per-segment analog + event dictionaries, then to pandas frames. ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Read Cambridge Electronics Spike2 ``.smr`` files via neo into pandas."""
+from __future__ import annotations
+
+from pathlib import Path
+
 import neo
-import pandas as pd
 import numpy as np
+import pandas as pd
 import quantities as pq
-class spike2SimpleReader():
+
+from deprecation import deprecated_alias, deprecated_class_alias
+
+
+class Spike2SimpleReader:
+    """Read a simple Spike2 ``.smr`` file into per-segment analog/event data.
+
+    Wraps the neo library [1]_. The result (``self.outPutData``) is a list
+    with one entry per Spike2 segment. Each entry is a ``(analog, events)``
+    tuple of dictionaries keyed by channel name; event values hold the
+    times an event occurred, analog values hold the time vector and
+    channel magnitudes.
+
+    Args:
+        file_name: Path to the ``.smr`` file to read.
+
+    References:
+        .. [1] Garcia S. et al. (2014) Neo: an object model for handling
+           electrophysiology data in multiple formats. Front. Neuroinform.
+           8:10. doi:10.3389/fninf.2014.00010
     """
-    This class loads simple smr files of the Cambridge Electronics Software
-    Spike2. It wraps the neo library 1). The resulting data-structure is a list. Each entry 
-    in the list represents a Spike2 Segment consisting only of Analog and Event channels. The 
-    list entry is a tuple with two dictionaries. The first for analog singals the second for 
-    events. Each dictionary uses the channel name as a key and the  data is stored in the value.
 
-    Events only save in the data-value the times the event occured. Annalog data consists of the 
-    time vector and the magnitude of the different analog channels. All data will be saved in 
-    self.outPutData.
+    def __init__(self, file_name: str | Path) -> None:
+        self.fileName = str(file_name)
+        self.eventList: list = []
+        self.analogSigList: list = []
+        self.neoReader = False
+        self.dataBlock = False
+        self.outPutData: list = []
 
-    1) Garcia S., Guarino D., Jaillet F., Jennings T.R., Pröpper R., Rautenberg P.L., Rodgers C., 
-       Sobolev A.,Wachtler T., Yger P. and Davison A.P. (2014) Neo: an object model for handling 
-       electrophysiology data in multiple formats. Frontiers in Neuroinformatics 8:10: doi:10.3389/fninf.2014.00010
-       https://neo.readthedocs.io/en/stable/index.html
-
-    """    
-    def __init__(self,fileName):
-        """This function initializes the class and awaits the position of the smr file. It 
-        also  initialises all relevant variables for the object
-
-        :param fileName: position of the smr-file to read
-        :type fileName: string or path-string
-        """        
-        self.fileName      = fileName
-        self.eventList     = list()
-        self.analogSigList = list()
-        self.neoReader     = False
-        self.dataBlock     = False
-        self.outPutData    = list()
-
-
-    def readByNeo(self):
-        """ This initialises the spike2-reader object of the neo class. The readers
-        is working in lazy mode. Hence it can use up large amounts of memory.
-        """        
+    def read_by_neo(self) -> None:
+        """Initialise the neo Spike2 reader and read the data block."""
         self.neoReader = neo.io.Spike2IO(filename=self.fileName)
         self.dataBlock = self.neoReader.read(lazy=False)[0]
 
-    def readSegments(self):
-        """ This function splits the data into segments. Sometimes smr files include
-        multiple recordings at different times, such su divisions are called segments.
-        The function than runs the single segment read function. and returns the data 
-        to self.outPutData.
+    def read_segments(self) -> None:
+        """Read every segment of the data block into ``self.outPutData``.
+
+        Some ``.smr`` files hold several recordings at different times;
+        each such division is a segment.
         """
-        self.outPutData = list()
+        self.outPutData = []
         for seg in self.dataBlock.segments:
-            self.outPutData.append(self.readSingleSeg(seg))
-        
+            self.outPutData.append(self.read_single_seg(seg))
 
-    def readSingleSeg(self,seg):
-        """ This function calls the event and analog signal readers and returns the
-        data in form of a tuple, with [0] = analog singals and [1] = events.
+    def read_single_seg(self, seg) -> tuple[dict, dict]:
+        """Read one segment, returning ``(analog_signals, events)``."""
+        events = self.read_events(seg)
+        analog_sigs = self.read_analog_signals(seg)
+        return (analog_sigs, events)
 
-        :param seg: segment object of the neo - reader class
-        :type seg: segment object
-        :return: segmentData 
-        :rtype: tuple
-        """        
-        events     = self.readEvents(seg)
-        analogSigs = self.readAnalogSignals(seg)
-        return (analogSigs,events)
-    
-    def readEvents(self,seg):
-        """ This reads all the event channels of a segment and returns their occurences as a dictionary.
-
-        :param seg: segment object of the neo - reader class
-        :type seg: segment object
-        :return:  a dictionary in which the keys are the names of the event channels and the values the indices of their occurence
-        :rtype:  dictionary
-        """        
-        eventData = dict()
+    def read_events(self, seg) -> dict:
+        """Return a segment's event channels as ``{name: occurrence times}``."""
+        event_data = {}
         for event in seg.events:
-            eventData[event.name] = event.times
-        return eventData
-  
+            event_data[event.name] = event.times
+        return event_data
 
-    def readAnalogSignals(self,seg):
-        """This function reads all analog signals and returns a dictionary. The first entry of the
-        dictionary is the time signal. Than all channels are listed. The key is the name of the channel.
-        The value is the magnitude of the channel.
+    def read_analog_signals(self, seg) -> dict:
+        """Return a segment's analog channels as ``{name: magnitudes}``.
 
-        :param seg: segment object of the neo - reader class
-        :type seg: segment object
-        :return:  a dictionary in which the keys are the names of the analog signal channels and the values are their magnitudes
-        :rtype:  dictionary
-        """        
-        analogData = dict()
-        analogData['time_s']  = seg.analogsignals[0].times
-        for aSignal in seg.analogsignals:
-            analogData[aSignal.name] = aSignal.magnitude
-        return analogData
-    
-    def main(self):
-        """This is the main program. It initializes the reader and than
-        reads the data.
-        """        
-        self.readByNeo()
-        self.readSegments()
+        The first entry, ``"time_s"``, holds the shared time vector.
+        """
+        analog_data = {}
+        analog_data["time_s"] = seg.analogsignals[0].times
+        for a_signal in seg.analogsignals:
+            analog_data[a_signal.name] = a_signal.magnitude
+        return analog_data
 
-class segmentSaver():
-    """ This class writes the CED data read by the spike2SimpleReader to a pandas object.
-        The event channels are therefore changed into boolean arrays. NOTE! The event channel
-        is not subject to the sample frequency of the analog signals. This is changed here and 
-        the nearest sample point to the event is used for this event
-    """    
-    def __init__(self,spike2SimplerReaderobject,savePos):
-        """ This function initializes the segment save class. It needs the reader object and the
-        position to which it should save the data, e.g. /destinationFolder/fileName.ext . It will
-        augment the save position so that the segments can be read, e.g. 
+    def main(self) -> None:
+        """Read the file: initialise the reader, then read all segments."""
+        self.read_by_neo()
+        self.read_segments()
 
-        /destinationFolder/fileName_1_3.ext 
-        /destinationFolder/fileName_2_3.ext 
-        /destinationFolder/fileName_3_3.ext 
+    # Deprecated camelCase method names.
+    readByNeo = deprecated_alias(read_by_neo, "readByNeo")
+    readSegments = deprecated_alias(read_segments, "readSegments")
+    readSingleSeg = deprecated_alias(read_single_seg, "readSingleSeg")
+    readEvents = deprecated_alias(read_events, "readEvents")
+    readAnalogSignals = deprecated_alias(read_analog_signals, "readAnalogSignals")
 
-        :param spike2SimplerReaderobject: the reader object
-        :type spike2SimplerReaderobject: python object
-        :param savePos: file position where to save the files
-        :type savePos: str
-        """        
-        self.s2sr     = spike2SimplerReaderobject
-        self.savePos  = savePos
-    
-    def main(self, save_mode = False):
-        """This is the main function that will split the reader object
-        into dataframes which hold the data of each segment. Optionally
-        all segment-dataframes are returned in a list.
 
-        :return: a list of dataframes for each segment
-        :rtype: list of pandas dataframes
-        """        
-        segNum = len(self.s2sr.outPutData)
-        dataframeList = list()
-        c = 0
-        for segment in self.s2sr.outPutData:
-            #create data frame on the basis of the analogData
-            df = self.analogSignalDict2Pandas(segment)
-            # add events
-            df = self.eventDict2Pandas(segment,df)
-            #save to savePos
+class SegmentSaver:
+    """Write Spike2 reader data to pandas, mapping events to boolean columns.
+
+    Event channels are not bound to the analog sample frequency, so each
+    event is placed at the nearest analog sample point.
+
+    Args:
+        spike2_reader: A :class:`Spike2SimpleReader` that has been read.
+        save_pos:      Output path, e.g. ``/folder/name.ext``; segment
+                       index and count are inserted as ``name_1_3.ext``.
+    """
+
+    def __init__(self, spike2_reader: Spike2SimpleReader, save_pos: str | Path) -> None:
+        self.s2sr = spike2_reader
+        self.savePos = str(save_pos)
+
+    def main(self, save_mode: bool = False) -> list[pd.DataFrame]:
+        """Build one DataFrame per segment, optionally saving each as CSV.
+
+        Returns:
+            List of per-segment DataFrames.
+        """
+        seg_num = len(self.s2sr.outPutData)
+        dataframe_list = []
+        for index, segment in enumerate(self.s2sr.outPutData):
+            df = self.analog_signal_dict_to_pandas(segment)
+            df = self.event_dict_to_pandas(segment, df)
             if save_mode:
-                df.to_csv(self.savePos[:-4]+f'_{c}_{segNum}'+self.savePos[-4::])
-            c+=1
-            dataframeList.append(df)
-        return dataframeList
+                df.to_csv(self.savePos[:-4] + f"_{index}_{seg_num}" + self.savePos[-4:])
+            dataframe_list.append(df)
+        return dataframe_list
 
-
-    def analogSignalDict2Pandas(self,segment):
-        """ This function transforms the analog signals into one pandas dataframe. The time in seconds is
-        the index of the dataframe. The analogsignals are different columns in it.
-
-        :param segment: a tuple with the dictionaries for the analog signals and the event data
-        :type segment: tuple
-        :return: a pandas dataframe described as above
-        :rtype: dataframe
-        """        
-        # get Dict
-        aSigDict = segment[0]
-        # rescale time to seconds
-        aSigDict['time_s'] = aSigDict['time_s'].rescale(pq.s) 
-
-        for channel in  list(aSigDict.keys()):
-            aSigDict[channel] = np.array(aSigDict[channel]).flatten()
-        
-        df = pd.DataFrame(aSigDict)
-        df.set_index('time_s', inplace=True)
+    def analog_signal_dict_to_pandas(self, segment: tuple[dict, dict]) -> pd.DataFrame:
+        """Turn a segment's analog signals into a time-indexed DataFrame."""
+        a_sig_dict = segment[0]
+        a_sig_dict["time_s"] = a_sig_dict["time_s"].rescale(pq.s)
+        for channel in list(a_sig_dict.keys()):
+            a_sig_dict[channel] = np.array(a_sig_dict[channel]).flatten()
+        df = pd.DataFrame(a_sig_dict)
+        df.set_index("time_s", inplace=True)
         return df
-    
-    def eventDict2Pandas(self,segment,df):
-        """This function adds the event data as boolean arrays to the dataframe
 
-        :param segment: a tuple with the dictionaries for the analog signals and the event data
-        :type segment: tuple
-        :return: a pandas dataframe described in analogSignalDict2Pandas
-        :rtype: dataframe
-        :return: same dataframe with additional event channels
-        :rtype: data frame
-        """        
-        # get Dict
-        eventDict = segment[1]
-
-        for channel in  list(eventDict.keys()):
-            # rescale time to seconds
-            times = eventDict[channel].rescale(pq.s) 
+    def event_dict_to_pandas(self, segment: tuple[dict, dict], df: pd.DataFrame) -> pd.DataFrame:
+        """Add a segment's event channels to ``df`` as boolean columns."""
+        event_dict = segment[1]
+        for channel in list(event_dict.keys()):
+            times = event_dict[channel].rescale(pq.s)
             times = np.array(times.flatten())
-            df[channel] = self.events2boolSignal(df.index.to_numpy(),times)
-        
+            df[channel] = self.events_to_bool_signal(df.index.to_numpy(), times)
         return df
-    
-    def events2boolSignal(self,indArray,events):
-        """ This function maps the time stamp of the event channel on to the time samples
-        of the analog channels and returns this information  as a boolean array.
 
-        :param indArray: time index as numpy array
-        :type indArray: numpy array
-        :param events: times in seconds when the event occured 
-        :type events: numpy array
-        :return: a boolean array where the occurences are mapped to the closest time index.
-        :rtype: numpy array dtype booleans
-        """        
-        boolArray = np.full(indArray.shape,False)
-        for occurence in events:
-            absDiff = np.abs(indArray-occurence)
-            pos = absDiff.argmin()
-            boolArray[pos] = True
+    def events_to_bool_signal(self, index_array: np.ndarray, events: np.ndarray) -> np.ndarray:
+        """Map event times onto the nearest analog samples as a boolean mask.
 
-        return boolArray
+        Args:
+            index_array: Time index as a NumPy array.
+            events:      Event times in seconds.
+
+        Returns:
+            Boolean array, True at the closest sample to each event.
+        """
+        bool_array = np.full(index_array.shape, False)
+        for occurrence in events:
+            abs_diff = np.abs(index_array - occurrence)
+            pos = abs_diff.argmin()
+            bool_array[pos] = True
+        return bool_array
+
+    # Deprecated camelCase method names.
+    analogSignalDict2Pandas = deprecated_alias(
+        analog_signal_dict_to_pandas, "analogSignalDict2Pandas"
+    )
+    eventDict2Pandas = deprecated_alias(event_dict_to_pandas, "eventDict2Pandas")
+    events2boolSignal = deprecated_alias(events_to_bool_signal, "events2boolSignal")
+
+
+# Deprecated lower-camelCase class names.
+spike2SimpleReader = deprecated_class_alias(Spike2SimpleReader, "spike2SimpleReader")
+segmentSaver = deprecated_class_alias(SegmentSaver, "segmentSaver")

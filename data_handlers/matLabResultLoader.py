@@ -1,122 +1,133 @@
-import scipy.io
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — data_handlers.matLabResultLoader                ║
+# ║  « read LACE MATLAB result files »                               ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Loads the .mat output of the MATLAB LACE tracker and splits it  ║
+# ║  into trace, contour, mid-line, head/tail, and kinematic arrays. ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Load and unpack the MATLAB LACE tracker's ``.mat`` result files."""
+from __future__ import annotations
+
+from pathlib import Path
+
 import numpy as np
-class matLabResultLoader():
-    """
-    A class to load MATLAB result files and extract relevant data.
+import scipy.io
 
-    Attributes
-    ----------
-    filePosition : str
-        The file path of the MATLAB result file.
-    mode : str, optional
-        The mode for loading the MATLAB result file, default is 'anaMat'.
+from deprecation import deprecated_alias, deprecated_class_alias
 
-    Methods
-    -------
-    readAnaMatFile():
-        Reads the MATLAB analysis file.
-    ndArray2npArray2D(ndArray):
-        Converts a MATLAB array to a NumPy 2D array.
-    flattenNDarray(ndArray):
-        Flattens a MATLAB array and converts it to a list of NumPy arrays.
-    splitResults2Variables():
-        Splits the loaded results into separate variables.
-    getData():
-        Returns the extracted data from the MATLAB result file.
+
+class MatlabResultLoader:
+    """Load a MATLAB LACE result file and expose its arrays as attributes.
+
+    Args:
+        file_position: Path to the ``.mat`` result file.
+        mode:          Loader mode; only ``"anaMat"`` is supported.
     """
 
+    def __init__(self, file_position: str | Path, mode: str = "anaMat") -> None:
+        self.file_position = Path(file_position)
+        self.mode = mode
 
-    def __init__(self, filePosition, mode ='anaMat'):
-        self.filePosition = filePosition
-        self.mode         = mode
+    def read_ana_mat_file(self) -> None:
+        """Load the analysis ``.mat`` file into meta/analysed/trace arrays."""
+        mat = scipy.io.loadmat(self.file_position)
+        self.metaData = mat["metaData"]
+        self.analysedData = mat["analysedData"]
+        self.traceResult = self.analysedData[0][0][0]
 
-    def readAnaMatFile(self): 
-        """
-        Reads the MATLAB analysis file and extracts the data.
-        """
-        mat = scipy.io.loadmat(self.filePosition)
-        self.metaData     = mat['metaData']
-        self.analysedData = mat['analysedData']
-        self.traceResult  = self.analysedData[0][0][0]
+    def ndarray_to_np_array_2d(self, nd_array: np.ndarray) -> np.ndarray:
+        """Convert a MATLAB cell column into a 2D NumPy array (x first).
 
-    def ndArray2npArray2D(self,ndArray):
-        """
-        Converts a MATLAB array to a NumPy 2D array.
+        Args:
+            nd_array: MATLAB array column to convert.
 
-        Parameters
-        ----------
-        ndArray : array-like
-            The MATLAB array to be converted.
+        Returns:
+            2D array with x and y columns swapped so x comes first.
+        """
+        temp = nd_array.tolist()
+        return np.fliplr(np.array([x[0][:] for x in temp]))  # fliplr so x is first
 
-        Returns
-        -------
-        np_array : numpy.ndarray
-            The converted NumPy 2D array.
-        """
-        temp = ndArray.tolist()
-        return np.fliplr(np.array([x[0][:] for x in temp])) # fliplr as x should be first
+    def flatten_ndarray(self, nd_array: np.ndarray) -> list[np.ndarray]:
+        """Flatten a MATLAB cell column into a list of 2D arrays (x first).
 
-    def flattenNDarray(self,ndArray):
-        """
-        Flattens a MATLAB array and converts it to a list of NumPy arrays.
+        Args:
+            nd_array: MATLAB array column to flatten.
 
-        Parameters
-        ----------
-        ndArray : array-like
-            The MATLAB array to be flattened.
+        Returns:
+            List of 2D arrays, one per cell, x and y columns swapped.
+        """
+        temp = nd_array.tolist()
+        return [np.fliplr(np.array(x[0][0].tolist())) for x in temp]  # fliplr so x is first
 
-        Returns
-        -------
-        list_of_arrays : list
-            The list of flattened NumPy arrays.
-        """
-        temp = ndArray.tolist()
-        return [np.fliplr(np.array(x[0][0].tolist())) for x in temp] # fliplr as x should be first
-    
-    def splitResults2Variables(self):
-        """
-        Splits the loaded results into separate variables.
-        
-        # traceInfo
-        # 
-        # col  1: x-position in pixel
-        # col  2: y-position in pixel
-        # col  3: major axis length of the fitted ellipse
-        # col  4: minor axis length of the fitted ellipse
-        # col  5: ellipse angle in degree
-        # col  6: quality of the fit
-        # col  7: number of animals believed in their after final evaluation
-        # col  8: number of animals in the ellipse according to surface area
-        # col  9: number of animals in the ellipse according to contour length
-        # col 10: is the animal close to an animal previously traced (1 == yes)
-        # col 11: evaluation weighted mean
-        # col 12: detection quality [aU] if
-        # col 13: correction index, 1 if the area had to be corrected automatically
-        """
-        self.traceInfo        = self.ndArray2npArray2D(self.traceResult[:,0])
-        self.traceContour     = self.flattenNDarray(self.traceResult[:,1])
-        self.traceMidline     = self.flattenNDarray(self.traceResult[:,2])
-        self.traceHead        = self.ndArray2npArray2D(self.traceResult[:,3])
-        self.traceTail        = self.ndArray2npArray2D(self.traceResult[:,4])
-        self.trace            = self.analysedData[0][0][1]
-        self.bendability      = [x[0][:] for x in self.analysedData[0][0][2].tolist()]
-        self.binnedBend       = self.analysedData[0][0][3]
-        self.saccs            = self.analysedData[0][0][4]
-        self.trigAveSacc      = self.analysedData[0][0][5]
-        self.medMaxVelocities = self.analysedData[0][0][6] 
+    def split_results_to_variables(self) -> None:
+        """Split the loaded trace result into the individual data arrays.
 
-    def getData(self):
-        """
-        Returns the extracted data from the MATLAB result file.
+        Trace-info columns (``traceInfo``):
 
-        Returns
-        -------
-        data : tuple
-            A tuple containing the extracted data variables.
+        1.  x-position in pixels
+        2.  y-position in pixels
+        3.  major axis length of the fitted ellipse
+        4.  minor axis length of the fitted ellipse
+        5.  ellipse angle in degrees
+        6.  quality of the fit
+        7.  number of animals trusted after final evaluation
+        8.  number of animals in the ellipse by surface area
+        9.  number of animals in the ellipse by contour length
+        10. whether the animal is close to a previously traced animal (1 == yes)
+        11. evaluation weighted mean
+        12. detection quality [a.u.]
+        13. correction index (1 if the area was corrected automatically)
         """
-        if self.mode == 'anaMat':
-            self.readAnaMatFile()
-            self.splitResults2Variables()
-            return self.traceInfo, self.traceContour, self.traceMidline, self.traceHead, self.traceTail, self.trace, self.bendability, self.binnedBend, self.saccs, self.trigAveSacc, self.medMaxVelocities
-        else:
-            raise ValueError('Unknown mode for matLabResultLoader: '+str(self.mode))
+        self.traceInfo = self.ndarray_to_np_array_2d(self.traceResult[:, 0])
+        self.traceContour = self.flatten_ndarray(self.traceResult[:, 1])
+        self.traceMidline = self.flatten_ndarray(self.traceResult[:, 2])
+        self.traceHead = self.ndarray_to_np_array_2d(self.traceResult[:, 3])
+        self.traceTail = self.ndarray_to_np_array_2d(self.traceResult[:, 4])
+        self.trace = self.analysedData[0][0][1]
+        self.bendability = [x[0][:] for x in self.analysedData[0][0][2].tolist()]
+        self.binnedBend = self.analysedData[0][0][3]
+        self.saccs = self.analysedData[0][0][4]
+        self.trigAveSacc = self.analysedData[0][0][5]
+        self.medMaxVelocities = self.analysedData[0][0][6]
+
+    def get_data(self) -> tuple:
+        """Read and unpack the file, returning all extracted arrays.
+
+        Returns:
+            Tuple of (traceInfo, traceContour, traceMidline, traceHead,
+            traceTail, trace, bendability, binnedBend, saccs, trigAveSacc,
+            medMaxVelocities).
+
+        Raises:
+            ValueError: If ``mode`` is not ``"anaMat"``.
+        """
+        if self.mode != "anaMat":
+            raise ValueError(f"Unknown mode for MatlabResultLoader: {self.mode!r}")
+        self.read_ana_mat_file()
+        self.split_results_to_variables()
+        return (
+            self.traceInfo,
+            self.traceContour,
+            self.traceMidline,
+            self.traceHead,
+            self.traceTail,
+            self.trace,
+            self.bendability,
+            self.binnedBend,
+            self.saccs,
+            self.trigAveSacc,
+            self.medMaxVelocities,
+        )
+
+    # Deprecated camelCase method names — forward to the snake_case versions.
+    readAnaMatFile = deprecated_alias(read_ana_mat_file, "readAnaMatFile")
+    ndArray2npArray2D = deprecated_alias(ndarray_to_np_array_2d, "ndArray2npArray2D")
+    flattenNDarray = deprecated_alias(flatten_ndarray, "flattenNDarray")
+    splitResults2Variables = deprecated_alias(
+        split_results_to_variables, "splitResults2Variables"
+    )
+    getData = deprecated_alias(get_data, "getData")
+
+
+# Deprecated lower-camelCase class name.
+matLabResultLoader = deprecated_class_alias(MatlabResultLoader, "matLabResultLoader")
