@@ -78,7 +78,7 @@ class TraceAnalyser:
         if not self.mm_tra_available:
             # FIXME(flagged): the 4th corner uses arena_size[1] for its y value;
             # for a rectangle it is expected to be arena_size[0]. Preserved
-            # as-is pending confirmation — see the Sprint 2 notes.
+            # as-is pending confirmation — see issue #3.
             self.arenaCoords_mm = np.array([
                 [0, 0],
                 [self.arena_size_by_experiment[1], 0],

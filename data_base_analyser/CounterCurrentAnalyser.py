@@ -23,7 +23,7 @@ ORTHO_CENTRE: float = 4 * 4.77
 # methods — calculate_distances_to_core uses 12*10 (=120) while
 # calculate_weighted_distances_to_core uses 9*10 (=90). At most one matches the
 # real arena centre, and the choice changes the published distances. Both are
-# preserved verbatim below pending confirmation of the correct value.
+# preserved verbatim below pending confirmation of the correct value. See issue #1.
 STREAM_CENTRE_MAX: float = 12 * 10
 STREAM_CENTRE_WEIGHTED: float = 9 * 10
 
@@ -145,7 +145,7 @@ class CounterCurrentAnalyser:
 
         # FIXME(flagged): scipy.interpolate.interp2d is deprecated (>=1.10) and
         # removed in scipy 1.14; migrate to RegularGridInterpolator. Kept for now
-        # to preserve the existing interpolation result.
+        # to preserve the existing interpolation result. See issue #5.
         f = interp2d(x_axis, y_axis, data, kind="cubic")
         x_axis_new = np.linspace(x_axis.min(), x_axis.max(), x_axis.size * interp_factor)
         y_axis_new = np.linspace(y_axis.min(), y_axis.max(), y_axis.size * interp_factor)

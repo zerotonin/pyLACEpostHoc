@@ -70,7 +70,7 @@ class SpikeDetector:
         # FIXME(flagged): this assigns a DataFrame *attribute* 'amplitude_mV'
         # rather than the 'amplitude_muV' column, so negative-spike amplitudes
         # are never actually negated. Preserved as-is pending confirmation —
-        # see the Sprint 2 notes. (separate_m_units uses .abs(), so spike
+        # see issue #2. (separate_m_units uses .abs(), so spike
         # categorisation is unaffected; only the stored amplitude sign is.)
         spike_df_negative.amplitude_mV = spike_df_negative.amplitude_muV * -1
 

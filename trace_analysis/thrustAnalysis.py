@@ -34,7 +34,7 @@ def exact_mc_perm_test(xs: np.ndarray, ys: np.ndarray, n_permutations: int) -> f
     FIXME(flagged): the observed statistic uses the *median* difference while
     the permuted statistic uses the *mean* difference, which is inconsistent.
     Preserved as-is pending confirmation; the lab standard is to run this
-    through reRandomStats. See the Sprint 2 notes.
+    through reRandomStats. See issue #4.
 
     Args:
         xs, ys:         The two samples to compare.
