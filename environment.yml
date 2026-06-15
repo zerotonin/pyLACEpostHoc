@@ -1,0 +1,35 @@
+# environment.yml
+#
+# install: conda env create -f environment.yml
+# update:  conda env update -f environment.yml
+#
+# Supersedes the legacy Python 3.7 `pylace.yaml`.  Installs the package
+# in editable mode with the full extras (I/O readers + survival stats).
+name: pylaceposthoc
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - scipy
+  - matplotlib
+  - seaborn
+  - tqdm
+  - pyyaml
+  - opencv
+  - pims
+  - pillow
+  - lxml
+  - pytables          # h5 saving for pandas
+  - pyarrow           # parquet saving for pandas
+  - fastparquet       # parquet saving for pandas
+  - pip:
+      - vidstab
+      - neo            # electrophysiological data
+      - quantities
+      - dill
+      - lifelines
+      - mlxtend
+      - -e ".[dev]"

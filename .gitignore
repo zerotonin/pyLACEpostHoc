@@ -20,6 +20,9 @@ figures/
 *.parquet
 *.csv
 
+# Docs build
+docs/_build/
+
 # Editor / OS
 .vscode/
 .idea/

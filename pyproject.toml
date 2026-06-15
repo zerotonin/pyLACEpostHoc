@@ -1,0 +1,105 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — pyproject.toml                                   ║
+# ║  « build config, dependencies, tooling »                         ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyLACEpostHoc"
+dynamic = ["version"]
+description = "Database, post-hoc analysis, and plotting layer for the LACE pose estimator family."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Bart R. H. Geurten", email = "bart.geurten@otago.ac.nz" },
+]
+keywords = ["fish", "behaviour", "pose-estimation", "kinematics", "rheotaxis"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: OS Independent",
+]
+
+# Core numeric / plotting stack — kept light so the package and its
+# pure-Python helpers install everywhere.  Heavy I/O and survival-stats
+# backends live in the optional extras below.
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
+    "seaborn",
+    "tqdm",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# Raw-data readers (video, MATLAB, Spike2/electrophysiology, HDF5/parquet).
+io = [
+    "opencv-python",
+    "pims",
+    "vidstab",
+    "pillow",
+    "lxml",
+    "neo",
+    "quantities",
+    "tables",
+    "pyarrow",
+    "fastparquet",
+    "dill",
+]
+# Survival / permutation statistics used by the database analysers.
+stats = [
+    "lifelines",
+    "mlxtend",
+]
+# Everything needed to run the full analysis pipelines.
+full = ["pyLACEpostHoc[io,stats]"]
+# Test + lint tooling (what CI installs).
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "build",
+]
+
+[project.urls]
+Homepage = "https://github.com/zerotonin/pyLACEpostHoc"
+Repository = "https://github.com/zerotonin/pyLACEpostHoc"
+"Upstream tracker (pyLACE)" = "https://github.com/zerotonin/pyLACE"
+
+[tool.setuptools]
+py-modules = ["index_tools"]
+
+[tool.setuptools.packages.find]
+include = [
+    "data_handlers*",
+    "plotting*",
+    "fish_data_base*",
+    "data_base_analyser*",
+    "trace_analysis*",
+    "other_fish_related_analysis*",
+]
+exclude = ["run_scripts*", "tests*", "docs*"]
+
+[tool.setuptools_scm]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# Research codebase pre-modernisation — keep the lint surface gentle.
+select = ["E", "F", "W", "I"]
+ignore = ["E501", "E741"]
