@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "pyLACEpostHoc"
+abstract: >-
+  Database, post-hoc analysis, and plotting layer for the LACE pose
+  estimator family. Consumes LACE tracker outputs and produces
+  publication-ready kinematic statistics and figures.
+type: software
+authors:
+  - family-names: "Geurten"
+    given-names: "Bart R. H."
+    orcid: "https://orcid.org/0000-0002-1816-3241"
+    affiliation: "Department of Zoology, University of Otago, Dunedin, New Zealand"
+version: "0.1.0"
+license: "GPL-3.0-or-later"
+repository-code: "https://github.com/zerotonin/pyLACEpostHoc"
+url: "https://github.com/zerotonin/pyLACEpostHoc"
+keywords:
+  - fish
+  - behaviour
+  - pose-estimation
+  - kinematics
+  - rheotaxis
+references:
+  - type: article
+    title: >-
+      A 3D virtual reality system for fish behaviour and the LACE pose
+      estimator
+    authors:
+      - family-names: "Geurten"
+        given-names: "Bart R. H."
+    year: 2022
+    journal: "Frontiers in Behavioral Neuroscience"
