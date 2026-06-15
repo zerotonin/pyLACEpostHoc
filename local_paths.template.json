@@ -1,0 +1,12 @@
+{
+  "local": {
+    "data_root": "<absolute path to your data root>",
+    "database_path": "<absolute path to the fish database directory>",
+    "figure_root": "<absolute path where figures and CSV tables are written>"
+  },
+  "hpc": {
+    "data_root": "<absolute path to the cluster scratch data root>",
+    "database_path": "<absolute path to the fish database on the cluster>",
+    "figure_root": "<absolute path for figures on the cluster>"
+  }
+}

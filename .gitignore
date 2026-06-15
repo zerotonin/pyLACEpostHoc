@@ -20,8 +20,12 @@ figures/
 *.parquet
 *.csv
 
+# Machine-specific paths (copy local_paths.template.json -> local_paths.json)
+local_paths.json
+
 # Docs build
 docs/_build/
+docs/_autosummary/
 
 # Editor / OS
 .vscode/
