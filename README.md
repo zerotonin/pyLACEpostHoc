@@ -91,7 +91,7 @@ copy.
 ```bash
 pip install -e ".[dev]"
 pytest                      # unit tests
-ruff check tests index_tools.py constants.py config.py deprecation.py data_handlers trace_analysis fish_data_base data_base_analyser plotting
+ruff check tests index_tools.py constants.py config.py deprecation.py data_handlers trace_analysis fish_data_base data_base_analyser plotting other_fish_related_analysis
 ```
 
 Tests, docs, and releases are automated via GitHub Actions
@@ -100,12 +100,20 @@ GitHub Pages on push to `master`; tagging `vX.Y.Z` cuts a release.
 
 ## Status
 
-Stable but mid-modernisation. The package is now pip-installable with a
-flat-layout (`pyproject.toml` + `setuptools-scm`), a unit-test suite,
-and CI/CD. The legacy research modules still predate the Geurten Lab
-coding whitepaper (Python 3.7-era style); they are linted and
-hardened incrementally — `index_tools.py` is the first fully
-modernised module.
+Modernised against the Geurten Lab coding whitepaper. The package is
+pip-installable (flat layout, `pyproject.toml` + `setuptools-scm`), with
+a unit-test suite, CI/CD, and a fully auto-generated Sphinx API
+reference. Every library module carries type hints, Google-style
+docstrings, and Wong-palette figures; machine-specific paths flow
+through `local_paths.json` (no hardcoded paths in tracked files). The
+camelCase → snake_case rename ships with deprecation aliases, so older
+scripts keep working while warning. `run_scripts/` holds
+experiment-specific entry points (not packaged, not linted in CI).
+
+A handful of pre-existing, result-affecting issues are flagged in place
+with `# FIXME(flagged)` rather than silently changed (e.g. the
+counter-current stream-centre mismatch, a Spike2 amplitude-sign typo,
+and an arena-corner coordinate); these await domain confirmation.
 
 ## Citation
 
