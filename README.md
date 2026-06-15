@@ -4,6 +4,7 @@
 [![docs](https://github.com/zerotonin/pyLACEpostHoc/actions/workflows/docs.yml/badge.svg)](https://github.com/zerotonin/pyLACEpostHoc/actions/workflows/docs.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
+[![DOI](https://img.shields.io/badge/DOI-10.3389%2Ffnbeh.2022.819146-blue.svg)](https://doi.org/10.3389/fnbeh.2022.819146)
 
 Database, post-hoc analysis, and plotting layer for the LACE pose
 estimator family (originally Geurten 2022 *Frontiers in Behavioural
@@ -91,8 +92,16 @@ modernised module.
 
 ## Citation
 
-See [`CITATION.cff`](CITATION.cff). If you use this software, please
-cite it and the original LACE paper (Geurten 2022).
+If you use this software, please cite the LACE paper:
+
+> Garg, V., André, S., Giraldo, D., Heyer, L., Göpfert, M. C., Dosch,
+> R., & Geurten, B. R. H. (2022). A markerless pose estimator applicable
+> to limbless animals. *Frontiers in Behavioral Neuroscience*, 16,
+> 819146. <https://doi.org/10.3389/fnbeh.2022.819146>
+
+Machine-readable metadata (and GitHub's "Cite this repository" button)
+is in [`CITATION.cff`](CITATION.cff), which carries this article as its
+`preferred-citation`.
 
 ## License
 
