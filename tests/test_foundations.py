@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from pathlib import Path
 
 import matplotlib
 import pandas as pd
@@ -55,12 +56,13 @@ def paths_file(tmp_path):
 
 
 def test_get_path_from_profile(paths_file):
-    assert str(config.get_path("data_root", profile="hpc", paths_file=paths_file)) == "/scratch"
+    # Compare Path objects, not strings: separators differ across OSes.
+    assert config.get_path("data_root", profile="hpc", paths_file=paths_file) == Path("/scratch")
 
 
 def test_env_var_overrides_file(paths_file, monkeypatch):
     monkeypatch.setenv("PYLACE_POSTHOC_DATA_ROOT", "/override")
-    assert str(config.get_path("data_root", paths_file=paths_file)) == "/override"
+    assert config.get_path("data_root", paths_file=paths_file) == Path("/override")
 
 
 def test_missing_file_names_template(tmp_path):
