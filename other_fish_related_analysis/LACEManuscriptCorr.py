@@ -1,45 +1,59 @@
-from enum import auto
-from os import minor
-import data_handlers.matLabResultLoader as matLabResultLoader
-from importlib import reload
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — other_fish_related_analysis.LACEManuscriptCorr  ║
+# ║  « LACE auto-correction statistics »                             ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Summarises how often the LACE tracker auto-corrected detections ║
+# ║  across a folder of MATLAB result files, for the manuscript.     ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Summarise LACE tracker auto-correction frequency across result files."""
+from __future__ import annotations
+
+from pathlib import Path
+
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import plotting.fishPlot as fishPlot,os
 import numpy as np
-from tqdm import tqdm
 import pandas as pd
 import seaborn as sns
-import glob
+from tqdm import tqdm
 
-sourceDir = '/media/gwdg-backup/BackUp/Zebrafish/combinedData/traceResultsAna/'
-savePos   = '/media/dataSSD/zebraFischTrackingExample/fishDf.h5'
-files = [os.path.join(sourceDir,x) for x in glob.iglob(sourceDir + '**/*.mat')]
+import config
+from data_handlers.matLabResultLoader import MatlabResultLoader
 
-results = list()
+# Trace-result columns: 11 = detection quality, 12 = auto-correction flag.
+QUALITY_COL: int = 11
+CORRECTION_COL: int = 12
 
-for file in tqdm(files,desc='read matlab files'):
-    mrl = matLabResultLoader.matLabResultLoader(file)
-    mrl.getData()
-    autoCorrector = []
-    quality = []
 
-    for entry in mrl.traceResult:
-        quality.append(entry[0][0][11])
-        autoCorrector.append(entry[0][0][12])
+def summarise_corrections(source_dir: Path) -> pd.DataFrame:
+    """Return per-file frame counts, correction counts, rate, and quality."""
+    files = sorted(Path(source_dir).rglob("*.mat"))
+    results = []
+    for file in tqdm(files, desc="read matlab files"):
+        loader = MatlabResultLoader(file)
+        loader.get_data()
+        quality = [entry[0][0][QUALITY_COL] for entry in loader.traceResult]
+        auto_corrector = [entry[0][0][CORRECTION_COL] for entry in loader.traceResult]
+        frames = len(auto_corrector)
+        num_corr = np.sum(auto_corrector)
+        results.append([frames, num_corr, num_corr / frames, np.mean(quality)])
+    return pd.DataFrame(
+        np.array(results),
+        columns=["frame", "number of corrections", "corrections per frame", "median quality, au"],
+    )
 
-    mQual    = np.mean(quality)
-    numCorr  = np.sum(autoCorrector)
-    frames   = len(autoCorrector)
-    freqCorr = numCorr/frames
-    results.append([frames, numCorr,freqCorr,mQual])
 
-df = pd.DataFrame(np.array(results),columns=['frame','number of corrections','corrections per frame','median quality, au'])
-df.to_hdf(savePos,key='df')
-#sns.distplot(df["corrections per frame"],kde=False)
-sns.displot(df, x="corrections per frame", binwidth=.01,kde=False,rug=True, log_scale=(False, True))
-#ax = sns.distplot(df["corrections per frame"], rug=True, rug_kws={"color": "g"},
-#                  kde_kws={"color": "k", "lw": 3, "label": "KDE"},
-#                  hist_kws={"histtype": "step", "linewidth": 3,
-#                            "alpha": 1, "color": "g"})
+def main(source_dir: Path | None = None, save_position: Path | None = None) -> None:
+    """Summarise corrections under the configured data root and plot them."""
+    data_root = config.get_path("data_root")
+    source_dir = source_dir or data_root / "combinedData/traceResultsAna"
+    save_position = save_position or config.get_path("figure_root") / "fishDf.h5"
 
-plt.show()
+    df = summarise_corrections(Path(source_dir))
+    df.to_hdf(save_position, key="df")
+    sns.displot(df, x="corrections per frame", binwidth=0.01, kde=False, rug=True,
+                log_scale=(False, True))
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
