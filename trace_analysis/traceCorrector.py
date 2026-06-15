@@ -14,7 +14,7 @@ import numpy as np
 from data_handlers.matLabResultLoader import MatlabResultLoader
 from data_handlers.mediaHandler import MediaHandler
 from deprecation import deprecated_alias, deprecated_class_alias
-from plotting.fishPlot import frameOverlay
+from plotting.fishPlot import frame_overlay
 
 PAUSE_S: float = 0.001  # per-frame pause during the visual self-test
 
@@ -104,7 +104,7 @@ class TraceCorrector:
 
     def plot_frame_overlay(self) -> None:
         """Draw the current frame with the tracking data overlaid."""
-        frameOverlay(
+        frame_overlay(
             self.ax, self.currentFrame, self.contour[self.frameI], self.midLine[self.frameI],
             self.head[self.frameI, :], self.tail[self.frameI, :], self.boxCoords,
         )

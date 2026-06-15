@@ -1,224 +1,124 @@
-import matplotlib.pyplot as plt
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║  pyLACEpostHoc — plotting.fishPlot                               ║
+# ║  « trace overlays and kinematic plots »                          ║
+# ╠══════════════════════════════════════════════════════════════════╣
+# ║  Plot helpers for frame overlays, spatial histograms, mid-line   ║
+# ║  time series, colour bars, and angle/velocity panels.            ║
+# ╚══════════════════════════════════════════════════════════════════╝
+"""Matplotlib helpers for fish trace overlays and kinematic figures."""
+from __future__ import annotations
+
 import matplotlib.cm as cm
-import seaborn as sns
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
-def frameOverlay(ax,frame,contour,midLine,head,tail,boxCoords,
-                frameCmap = 'gray'):
-    """
-    Overlays the frame with trace results including contour, midline, head, tail, and box coordinates.
-
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The Axes object to draw on.
-    frame : array-like
-        The frame to be displayed as the background.
-    contour : array-like
-        The contour points to be plotted.
-    midLine : array-like
-        The midline points to be plotted.
-    head : array-like
-        The head point to be plotted.
-    tail : array-like
-        The tail point to be plotted.
-    boxCoords : array-like
-        The bounding box coordinates to be plotted.
-    frameCmap : str, optional
-        The colormap to be used for the frame, default is 'gray'.
-    """
-    ax.imshow(frame,cmap=frameCmap)  
-    plotTraceResult(ax,contour,midLine,head,tail,boxCoords)
-
-def plotTraceResult(ax,contour,midLine,head,tail,boxCoords):
-    """
-    Plots the trace results including contour, midline, head, tail, and box coordinates.
-
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The Axes object to draw on.
-    contour : array-like
-        The contour points to be plotted.
-    midLine : array-like
-        The midline points to be plotted.
-    head : array-like
-        The head point to be plotted.
-    tail : array-like
-        The tail point to be plotted.
-    boxCoords : array-like
-        The bounding box coordinates to be plotted.
-    """
-    ax.plot(midLine[:,0],midLine[:,1],'g.-')
-    ax.plot(contour[:,0],contour[:,1],'y-')
-    ax.plot(head[0],head[1],'bo')
-    ax.plot(tail[0],tail[1],'bs')
-    if boxCoords is not None:
-        ax.plot(boxCoords[:,0],boxCoords[:,1],'y-')
-        ax.plot(boxCoords[[0,-1],0],boxCoords[[0,-1],1],'y-')
-
-def simpleSpatialHist(ax,probDensity,cmap='PuBuGn'):
-    """
-    Plots a simple spatial histogram on the given Axes object.
-
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The Axes object to draw on.
-    probDensity : array-like
-        The probability density values to be plotted.
-    cmap : str, optional
-        The colormap to be used for the plot, default is 'PuBuGn'.
-    """
-    ax.imshow(probDensity,origin='lower',interpolation='gaussian',cmap=cmap)
+from constants import WONG
+from deprecation import deprecated_alias
 
 
-def seabornSpatialHist(midLine):
-    """
-    Plots a spatial histogram using seaborn's JointGrid and kdeplot.
+def frame_overlay(ax: Axes, frame, contour, mid_line, head, tail, box_coords,
+                  frame_cmap: str = "gray") -> None:
+    """Show ``frame`` and overlay the contour, mid-line, head, tail, and box."""
+    ax.imshow(frame, cmap=frame_cmap)
+    plot_trace_result(ax, contour, mid_line, head, tail, box_coords)
 
-    Parameters
-    ----------
-    midLine : array-like
-        The midline points to be plotted.
-    """
-    allMidLine =  np.vstack((midLine[:]))
-    df = pd.DataFrame(data={'x-coordinate, mm' : allMidLine[:,0],'y-coordinate, mm':allMidLine[:,1]})
 
+def plot_trace_result(ax: Axes, contour, mid_line, head, tail, box_coords) -> None:
+    """Overlay the trace result (mid-line, contour, head, tail, box) on ``ax``."""
+    ax.plot(mid_line[:, 0], mid_line[:, 1], ".-", color=WONG["bluish_green"])
+    ax.plot(contour[:, 0], contour[:, 1], "-", color=WONG["yellow"])
+    ax.plot(head[0], head[1], "o", color=WONG["blue"])
+    ax.plot(tail[0], tail[1], "s", color=WONG["blue"])
+    if box_coords is not None:
+        ax.plot(box_coords[:, 0], box_coords[:, 1], "-", color=WONG["yellow"])
+        ax.plot(box_coords[[0, -1], 0], box_coords[[0, -1], 1], "-", color=WONG["yellow"])
+
+
+def simple_spatial_hist(ax: Axes, prob_density, cmap: str = "PuBuGn") -> None:
+    """Show a probability-density occupancy map on ``ax``."""
+    ax.imshow(prob_density, origin="lower", interpolation="gaussian", cmap=cmap)
+
+
+def seaborn_spatial_hist(mid_line) -> None:
+    """Plot a mid-line occupancy density as a seaborn joint KDE with marginals."""
+    all_mid_line = np.vstack((mid_line[:]))
+    df = pd.DataFrame(
+        data={"x-coordinate, mm": all_mid_line[:, 0], "y-coordinate, mm": all_mid_line[:, 1]}
+    )
     sns.set_theme(style="white")
     cmap = sns.cubehelix_palette(start=1.66666, light=1, as_cmap=True)
+    grid = sns.JointGrid(data=df, x="x-coordinate, mm", y="y-coordinate, mm", space=0)
+    grid.plot_joint(sns.kdeplot, fill=True, cmap=cmap)
+    grid.ax_joint.set_aspect("equal")
+    grid.plot_marginals(sns.histplot, color=WONG["bluish_green"], alpha=0.75, bins=25)
 
-    g = sns.JointGrid(data=df, x="x-coordinate, mm", y="y-coordinate, mm", space=0)
-    g.plot_joint(sns.kdeplot,fill=True,cmap=cmap)
-    g.ax_joint.set_aspect('equal')
-    g.plot_marginals(sns.histplot, color="#173021", alpha=.75, bins=25)
 
-
-def addColorBar(ax,cmap,vmin,vmax,orientation,axisLableStr):
-    """
-    Adds a colorbar to the given Axes object with specified properties.
-
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The Axes object to draw on.
-    cmap : str
-        The colormap to be used for the colorbar.
-    vmin : float
-        The minimum value for the colorbar.
-    vmax : float
-        The maximum value for the colorbar.
-    orientation : str
-        The orientation of the colorbar, either 'h' for horizontal or 'v' for vertical.
-    axisLableStr : str
-        The label for the colorbar axis.
-    """
+def add_color_bar(ax: Axes, cmap, vmin: float, vmax: float, orientation: str,
+                  axis_label: str) -> None:
+    """Add a horizontal (``'h'``) or vertical (``'v'``) colour bar to ``ax``."""
     sm = cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
-    if orientation == 'h':
-        cbar = plt.colorbar(sm,orientation="horizontal",ax=ax)
-        cbar.ax.set_xlabel(axisLableStr, rotation=0)
-    if orientation == 'v':
-        cbar = plt.colorbar(sm,orientation="vertical",ax=ax)
-        cbar.ax.set_xlabel(axisLableStr, rotation=90)
+    if orientation == "h":
+        cbar = plt.colorbar(sm, orientation="horizontal", ax=ax)
+        cbar.ax.set_xlabel(axis_label, rotation=0)
+    if orientation == "v":
+        cbar = plt.colorbar(sm, orientation="vertical", ax=ax)
+        cbar.ax.set_xlabel(axis_label, rotation=90)
 
 
-def midLinePlot(ax,traceMidline,start,stop,step,colormapStr,fps):
+def mid_line_plot(ax: Axes, trace_mid_line, start: int, stop: int, step: int,
+                  colormap: str, fps: float) -> None:
+    """Plot every ``step``-th mid-line, coloured by time, with a colour bar."""
+    cmap = plt.get_cmap(colormap)
+    for i in range(start, stop):
+        if i % step == 0:
+            mid_line = trace_mid_line[i]
+            c = (i - start) / (stop - start)
+            ax.plot(mid_line[:, 0], mid_line[:, 1], ".-", color=cmap(c))
+            ax.plot(mid_line[-1, 0], mid_line[-1, 1], "k.")
+    add_color_bar(ax, cmap, 0, (stop - start) / fps, "h", "time, s")
+    plt.gca().set_aspect("equal", adjustable="box")
+
+
+def make_time_axis(length: int, fps: float, unit: str = "s") -> np.ndarray:
+    """Return a time axis of ``length`` samples in s, ms, min, or h.
+
+    Raises:
+        ValueError: If ``unit`` is not one of ``s``, ``ms``, ``min``, ``h``.
     """
-    Plots the midline traces with a colormap indicating time progression.
-
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        The Axes object to draw on.
-    traceMidline : array-like
-        The midline points to be plotted.
-    start : int
-        The start index for the midline traces.
-    stop : int
-        The stop index for the midline traces.
-    step : int
-        The step size between midline traces.
-    colormapStr : str
-        The colormap to be used for the plot.
-    fps : float
-        The frames per second of the video.
-    """
-
-    cmap = cm.get_cmap(colormapStr)
-    for i  in range(start,stop):
-        if i%step == 0:
-            midLine = traceMidline[i]
-            c = (i-start)/ (stop-start)
-            ax.plot(midLine[:,0],midLine[:,1],'.-',color=cmap(c))
-            ax.plot(midLine[-1,0],midLine[-1,1],'k.')
-
-    addColorBar(ax,cmap,0,(stop-start)/fps,'h','time, s')
-
-    plt.gca().set_aspect('equal', adjustable='box')
+    time_s = np.linspace(0, length / fps, length)
+    factors = {"s": 1.0, "ms": 1000.0, "min": 1 / 60, "h": 1 / 3600}
+    if unit not in factors:
+        raise ValueError(f"make_time_axis: unknown unit: {unit}")
+    return time_s * factors[unit]
 
 
-def makeTimeAxis(length,fps,unit='s'):
-    """
-    Creates a time axis with specified length, frames per second, and unit.
-
-    Parameters
-    ----------
-    length : int
-        The length of the time axis.
-    fps : float
-        The frames per second of the video.
-    unit : str, optional
-        The time unit for the axis, default is 's' for seconds. Options are 's', 'ms', 'min', and 'h'.
-
-    Returns
-    -------
-    time_axis : numpy.ndarray
-        The time axis with the specified unit.
-    """
-    time_s = np.linspace(0,length/fps,length)
-    if unit == 's':
-        return time_s
-    if unit == 'ms':
-        return time_s*1000
-    if unit == 'min':
-        return time_s/60
-    if unit == 'h':
-        return time_s/3600
-
-
-
-def plotAngleVelAbs(fig,ax,timeAx,angleDeg,velDegS,angleStr):
-    """
-    Plots the absolute angle and angular velocity on a single plot with two y-axes.
-
-    Parameters
-    ----------
-    fig : matplotlib.figure.Figure
-        The Figure object to draw on.
-    ax : matplotlib.axes.Axes
-        The Axes object to draw the angle data on.
-    timeAx : array-like
-        The time axis for the plot.
-    angleDeg : array-like
-        The angle data in degrees.
-    velDegS : array-like
-        The angular velocity data in degrees per second.
-    angleStr : str
-        The label for the angle data.
-    """
-
-    color = 'tab:blue'
-    ax.set_xlabel('time, s')
-    ax.set_ylabel(f'{angleStr} angle, deg', color=color)
-    ax.plot(timeAx,angleDeg, color=color)
-    ax.tick_params(axis='y', labelcolor=color)
+def plot_angle_vel_abs(fig: Figure, ax: Axes, time_ax, angle_deg, vel_deg_s,
+                       angle_str: str) -> None:
+    """Plot an angle and its angular velocity on twin y-axes."""
+    color = WONG["blue"]
+    ax.set_xlabel("time, s")
+    ax.set_ylabel(f"{angle_str} angle, deg", color=color)
+    ax.plot(time_ax, angle_deg, color=color)
+    ax.tick_params(axis="y", labelcolor=color)
 
     ax2 = ax.twinx()
+    color = WONG["sky_blue"]
+    ax2.set_ylabel(f"{angle_str} velocity, deg*s-1", color=color)
+    ax2.plot(time_ax, vel_deg_s, color=color)
+    ax2.tick_params(axis="y", labelcolor=color)
+    fig.tight_layout()
 
-    color ='xkcd:sky blue'
-    ax2.set_ylabel(f'{angleStr} velocity, deg*s-1', color=color)
-    ax2.plot(timeAx,velDegS, color=color)
-    ax2.tick_params(axis='y', labelcolor=color)
 
-    fig.tight_layout() 
+# Deprecated camelCase function names.
+frameOverlay = deprecated_alias(frame_overlay, "frameOverlay")
+plotTraceResult = deprecated_alias(plot_trace_result, "plotTraceResult")
+simpleSpatialHist = deprecated_alias(simple_spatial_hist, "simpleSpatialHist")
+seabornSpatialHist = deprecated_alias(seaborn_spatial_hist, "seabornSpatialHist")
+addColorBar = deprecated_alias(add_color_bar, "addColorBar")
+midLinePlot = deprecated_alias(mid_line_plot, "midLinePlot")
+makeTimeAxis = deprecated_alias(make_time_axis, "makeTimeAxis")
+plotAngleVelAbs = deprecated_alias(plot_angle_vel_abs, "plotAngleVelAbs")
