@@ -5,35 +5,36 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import index_tools
 
 
-def test_bool2indice_matches_docstring_example():
+def test_bool_to_indices_matches_docstring_example():
     """boolean 1,1,1,0,1,1,0,1 -> indices 0,1,2,4,5,7."""
     bools = [1, 1, 1, 0, 1, 1, 0, 1]
     np.testing.assert_array_equal(
-        index_tools.bool2indice(bools),
+        index_tools.bool_to_indices(bools),
         np.array([0, 1, 2, 4, 5, 7]),
     )
 
 
-def test_bool2indice_empty():
-    assert index_tools.bool2indice([0, 0, 0]).size == 0
+def test_bool_to_indices_empty():
+    assert index_tools.bool_to_indices([0, 0, 0]).size == 0
 
 
-def test_indice_seq2start_end_splits_runs():
+def test_indices_to_start_end_splits_runs():
     indices = [0, 1, 2, 4, 5, 7]
     np.testing.assert_array_equal(
-        index_tools.indice_seq2start_end(indices),
+        index_tools.indices_to_start_end(indices),
         np.array([[0, 2], [4, 5], [7, 7]]),
     )
 
 
-def test_bool_seq2start_end_indices_end_to_end():
+def test_bool_to_start_end_indices_end_to_end():
     bools = [1, 1, 1, 0, 1, 1, 0, 1]
     np.testing.assert_array_equal(
-        index_tools.bool_Seq2start_end_indices(bools),
+        index_tools.bool_to_start_end_indices(bools),
         np.array([[0, 2], [4, 5], [7, 7]]),
     )
 
@@ -52,3 +53,18 @@ def test_get_duration_from_start_end():
         index_tools.get_duration_from_start_end(start_end),
         np.array([[2], [1], [0]]),
     )
+
+
+def test_bracket_start_end_widens_eligible_runs():
+    start_end = np.array([[3, 5], [0, 2]])
+    # First run is eligible (start != 0 and end >= seq_len); second is not.
+    np.testing.assert_array_equal(
+        index_tools.bracket_start_end_of_sequence(start_end, seq_len=5),
+        np.array([[2, 6], [0, 2]]),
+    )
+
+
+def test_deprecated_alias_still_works_and_warns():
+    with pytest.warns(DeprecationWarning, match="bool_to_indices"):
+        result = index_tools.bool2indice([1, 0, 1])
+    np.testing.assert_array_equal(result, np.array([0, 2]))
